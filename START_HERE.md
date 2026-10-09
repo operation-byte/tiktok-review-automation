@@ -12,7 +12,13 @@
 
 ## Connecting the *same* Google Sheet
 
-Your existing file and column layout are preserved. Your ChatGPT Google Drive connection does not transfer an API credential to GitHub. To enable automated writes, a Google Cloud service account with the Google Sheets API enabled must have **Editor** access to that existing Sheet. If you already have its private JSON key, run:
+Browser mode reuses the original Playwright row writer and needs no service-account key. Set the repository variable `GOOGLE_SHEETS_MODE=browser`. Only verified live submissions append rows; dry runs leave the Sheet untouched. The writer checks existing order IDs and preserves `logs/google_sheet_logged_keys.txt` in encrypted state across runs. Sheet failures send a Telegram alert; review the saved CSV and Sheet before retrying.
+
+For each shop's local automation browser, log into TikTok and open the existing KPI Sheet in another tab. Sign into Google if editing requires it, then save that browser session. The saved state must include both TikTok and Google access. The writer reads the CSV export through the authenticated browser before appending and verifying rows. The setup check can read headers anonymously when permitted; private-sheet validation is deferred until Google login. Cloud session portability must be validated before enabling replies. Do not make a private Sheet public to work around access failures.
+
+For a local login, use `.venv/bin/python auto_reply_reviews.py --mode login --profile welive_main` (then `snackersbox`, then `konomi_living`). Complete both TikTok and Google authentication in that shop's browser before pressing ENTER in the terminal. GitHub Actions does not provide an interactive login screen. History import remains required before running cloud checks.
+
+Your existing file and column layout are preserved. Your ChatGPT Google Drive connection does not transfer an API credential to GitHub. For the alternative API mode, a Google Cloud service account with the Google Sheets API enabled must have **Editor** access to that existing Sheet. If you already have its private JSON key, run:
 
 ```powershell
 python -m scripts.finish_setup --google-credentials "C:\path\service-account.json"

@@ -218,7 +218,8 @@ def work(shops: list[str], force_dry: bool = False, login: bool = False) -> None
                 args = ["cloud_login.py", "--profile", shop, "--timeout", str(LOGIN_TIMEOUT)]
                 notify(f"Login browser started for {shop}. Connect to the private noVNC screen via the SSH tunnel and complete TikTok login within {LOGIN_TIMEOUT // 60} minutes. Do not send passwords or OTPs here.")
             else:
-                args = ["auto_reply_reviews.py", "--profile", shop, "--headless", "--no-google-sheets", "--log-path", "logs/replied_reviews.csv"]
+                sheets_flag = "--google-sheets" if SHEETS_MODE == "browser" and SUBMIT_ENABLED and not force_dry else "--no-google-sheets"
+                args = ["auto_reply_reviews.py", "--profile", shop, "--headless", sheets_flag, "--log-path", "logs/replied_reviews.csv"]
                 if force_dry or not SUBMIT_ENABLED:
                     args.append("--dry-run")
                 else:
@@ -263,6 +264,10 @@ def work(shops: list[str], force_dry: bool = False, login: bool = False) -> None
             message = f"{shop}: {status}"
             if not login:
                 message += "\n" + tail_summary(logfile)
+                if SHEETS_MODE == "browser" and any(text in output for text in (
+                    "Google Sheet manual append failed", "Google Sheet manual append could not be verified",
+                )):
+                    notify("Google Sheet browser logging needs attention. The reply is saved locally; inspect the private log and Sheet before retrying.")
                 if SHEETS_MODE == "api":
                     sync_file = LOG_DIR / f"sheets_sync_{datecode}.log"
                     sheet_code, sheet_timeout = execute(

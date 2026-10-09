@@ -657,9 +657,18 @@ def google_sheet_url_with_range(url: str, target_cell: str) -> str:
     return f"{base}{separator}range={target_cell}#gid={gid}&range={target_cell}"
 
 
-def fetch_google_sheet_rows(sheet_id: str = DEFAULT_GOOGLE_SHEET_ID, gid: int = DEFAULT_GOOGLE_WORKSHEET_GID) -> list[list[str]]:
-    """Read the public/editable Google Sheet as CSV so we can detect the real last data row."""
+def fetch_google_sheet_rows(sheet_id: str = DEFAULT_GOOGLE_SHEET_ID, gid: int = DEFAULT_GOOGLE_WORKSHEET_GID, *, request_context=None) -> list[list[str]]:
+    """Read Sheet CSV using the signed-in browser when available."""
     url = google_sheet_csv_export_url(sheet_id, gid)
+    if request_context is not None:
+        response = request_context.get(url, timeout=30000)
+        if not response.ok:
+            raise RuntimeError("Signed-in browser could not read Sheet CSV")
+        raw = response.text().lstrip("\ufeff")
+        rows = list(csv.reader(io.StringIO(raw)))
+        if not rows or (rows[0][0] if rows[0] else "").strip() != "Order ID":
+            raise RuntimeError("Sheet CSV headers invalid; verify Google browser login and Sheet access")
+        return rows
     request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
         raw = response.read().decode("utf-8-sig", errors="replace")
@@ -671,9 +680,9 @@ def google_sheet_row_has_real_data(row: list[str], max_cols: int = 9) -> bool:
     return any((cell or "").strip() for cell in row[:max_cols])
 
 
-def detect_google_sheet_next_blank_row() -> int:
+def detect_google_sheet_next_blank_row(*, request_context=None) -> int:
     """Return the next true blank row. Never returns row 1 because row 1 is headers."""
-    rows = fetch_google_sheet_rows()
+    rows = fetch_google_sheet_rows(request_context=request_context)
     last_data_row = 1
     for index, row in enumerate(rows, start=1):
         if google_sheet_row_has_real_data(row):
@@ -681,17 +690,17 @@ def detect_google_sheet_next_blank_row() -> int:
     return max(last_data_row + 1, 2)
 
 
-def google_sheet_contains_order_id(order_id: str) -> bool:
+def google_sheet_contains_order_id(order_id: str, *, request_context=None) -> bool:
     order_id = (order_id or "").strip()
     if not order_id:
         return False
-    return any(row and (row[0] or "").strip() == order_id for row in fetch_google_sheet_rows())
+    return any(row and (row[0] or "").strip() == order_id for row in fetch_google_sheet_rows(request_context=request_context))
 
 
-def google_sheet_row_matches(target_row: int, expected_row: list[str]) -> bool:
+def google_sheet_row_matches(target_row: int, expected_row: list[str], *, request_context=None) -> bool:
     if target_row < 2 or not expected_row:
         return False
-    rows = fetch_google_sheet_rows()
+    rows = fetch_google_sheet_rows(request_context=request_context)
     index = target_row - 1
     actual = rows[index] if index < len(rows) else []
     expected_values = [tsv_escape(value) for value in expected_row[:6]]
@@ -863,7 +872,13 @@ def manual_append_google_sheet_log(page, args, entry: ReplyLogEntry, review_date
     sheet_page = None
 
     try:
-        target_row = detect_google_sheet_next_blank_row()
+        if not entry.order_id.strip():
+            raise RuntimeError("Missing order ID; cannot safely deduplicate Sheet row")
+        if google_sheet_contains_order_id(entry.order_id, request_context=page.context.request):
+            mark_sheet_logged(marker_path, entry.review_key)
+            print("Google Sheet manual logging skipped order already present in Sheet")
+            return
+        target_row = detect_google_sheet_next_blank_row(request_context=page.context.request)
         target_cell = f"A{target_row}"
         print(f"Google Sheet target cell detected: {target_cell}")
 
@@ -872,7 +887,7 @@ def manual_append_google_sheet_log(page, args, entry: ReplyLogEntry, review_date
         sheet_url = google_sheet_url_with_range(args.google_sheet_url, target_cell)
         paste_google_sheet_row(sheet_page, target_row, row, args, sheet_url=sheet_url)
         sheet_page.wait_for_timeout(args.google_sheet_after_paste_wait_ms)
-        if not google_sheet_row_matches(target_row, row):
+        if not google_sheet_row_matches(target_row, row, request_context=context.request):
             print(
                 "Google Sheet manual append could not be verified; "
                 "local marker was not written so the bot can retry later: "

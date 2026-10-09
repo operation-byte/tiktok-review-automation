@@ -17,6 +17,7 @@ from cryptography.fernet import Fernet, InvalidToken
 ROOTS = ("alerts/cookie_jars/",)
 FILES = {
     "logs/replied_reviews.csv", "logs/review_dates.csv",
+    "logs/google_sheet_logged_keys.txt",
     "state/controller.json", "state/history_imported.ok",
     "alerts/login_required_profiles.txt", "alerts/profile_launch_failed_profiles.txt",
 }

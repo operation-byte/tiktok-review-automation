@@ -62,7 +62,19 @@ def check_state() -> str:
 
 
 def check_google() -> str:
-    if os.environ.get("GOOGLE_SHEETS_MODE", "off").lower() != "api":
+    mode = os.environ.get("GOOGLE_SHEETS_MODE", "off").lower()
+    if mode == "browser":
+        from auto_reply_reviews import fetch_google_sheet_rows
+        from google_sheet_sync import EXPECTED_HEADERS, tidy
+        try:
+            rows = fetch_google_sheet_rows()
+        except urllib.error.URLError:
+            return "Browser Sheets mode configured; anonymous CSV unavailable. Signed-in browser access must be validated locally before enabling live replies (no writes made)"
+        headers = tuple(tidy(v).casefold() for v in (rows[0] if rows else []))
+        if headers[:len(EXPECTED_HEADERS)] != tuple(v.casefold() for v in EXPECTED_HEADERS):
+            raise RuntimeError("Browser Sheets CSV header check failed; no writes made")
+        return "Browser Sheets CSV read and 13-column header check passed; browser editing access still needs interactive validation (no writes made)"
+    if mode != "api":
         return "Google Sheets write mode OFF (safe, read-only check deferred)"
     from google_sheet_sync import GoogleSheetsAPI, validate_headers
     api = GoogleSheetsAPI()
