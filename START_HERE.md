@@ -1,5 +1,9 @@
 # One daily check of 3 TikTok shops — finish setup
 
+## Current deployment
+
+This deployment selects **WELIVE and Snacker's Box only** (`AUTOMATION_SHOPS=welive_main,snackersbox`); Konomi Living is excluded. Google Sheets uses the original browser writer with authenticated CSV reads from `Backend Data`, `gid=298261214`. No JSON key is required. The explicit fresh-start marker restricts processing to reviews dated **10 October 2026 or later**, instead of claiming historical replies were imported. Local logins and Sheet reads have been verified. Encrypted sessions are stored in the private GitHub state branch; their key is a GitHub Secret. Use `dry-run.yml` for manual cloud validation. The daily schedule and public replies remain disabled until approved and validated.
+
 **No credit card, no Oracle VM, no need to leave Windows on.** GitHub Actions runs the **original Python/Playwright** review checks at **09:15 Asia/Singapore** each day. Reviews go into your existing **[TikTok Negative Review KPI](https://docs.google.com/spreadsheets/d/1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs/edit)**, tab `Backend Data`, once its Google service-account permissions are configured. Telegram warns when login is required.
 
 ## One-time installation (automates GitHub setup)

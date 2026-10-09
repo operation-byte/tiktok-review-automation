@@ -51,7 +51,7 @@ jobs:
             printf '%s' "$GOOGLE_SERVICE_ACCOUNT_B64" | base64 --decode > secrets/google-service-account.json
             chmod 600 secrets/google-service-account.json
           fi
-      - name: Run all three shops sequentially
+      - name: Run selected shops sequentially
         id: run_reviews
         run: python github_daily.py
       - name: Alert when runner failed before reporting
