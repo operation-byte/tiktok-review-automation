@@ -29,6 +29,7 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
       GOOGLE_SERVICE_ACCOUNT_FILE: ${{ github.workspace }}/secrets/google-service-account.json
       AUTOMATION_ENABLED: ${{ vars.AUTOMATION_ENABLED }}
+      AUTOMATION_SHOPS: ${{ vars.AUTOMATION_SHOPS || 'welive_main,snackersbox' }}
       ENABLE_SUBMIT: ${{ vars.ENABLE_SUBMIT }}
       GOOGLE_SHEETS_MODE: ${{ vars.GOOGLE_SHEETS_MODE }}
       GOOGLE_SHEET_ID: 1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs

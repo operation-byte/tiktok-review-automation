@@ -131,3 +131,20 @@ def test_legacy_cookie_list_still_restores(monkeypatch, tmp_path):
     context = Context()
     assert app.load_cookies_into(context, "welive_main")
     assert context.cookies[0]["value"] == "session"
+
+def test_selected_shops_require_only_selected_sessions(monkeypatch,tmp_path):
+    import scripts.bootstrap_state as bootstrap
+    monkeypatch.setattr(bootstrap,'SHOPS',('welive_main','snackersbox'))
+    (tmp_path/'logs').mkdir(); (tmp_path/'alerts/cookie_jars').mkdir(parents=True)
+    with (tmp_path/'logs/replied_reviews.csv').open('w',newline='') as out:
+        writer=csv.DictWriter(out,fieldnames=EXPECTED); writer.writeheader(); writer.writerow({'status':'submitted'})
+    for shop in bootstrap.SHOPS:
+        (tmp_path/f'alerts/cookie_jars/{shop}.json').write_text('[{"name":"sid","value":"test"}]')
+    assert bootstrap.validate(tmp_path)['shop_sessions']==['welive_main','snackersbox']
+
+def test_shop_selection_excludes_konomi(monkeypatch):
+    from scripts.bootstrap_state import configured_shops
+    monkeypatch.setenv('AUTOMATION_SHOPS','welive_main,snackersbox')
+    assert configured_shops()==('welive_main','snackersbox')
+    monkeypatch.setenv('AUTOMATION_SHOPS','welive_main,unknown')
+    with pytest.raises(ValueError): configured_shops()

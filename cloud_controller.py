@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-SHOPS = ("welive_main", "snackersbox", "konomi_living")
+from scripts.bootstrap_state import SHOPS
 TZ = ZoneInfo("Asia/Singapore")
 STATE_FILE = Path("state/controller.json")
 LOG_DIR = Path("logs")

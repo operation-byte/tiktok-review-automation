@@ -80,7 +80,8 @@ def main() -> int:
         c.notify("⚠️ TikTok daily check finished with attention needed.\n" +
                  "\n".join(problems) + "\nIf login is required, reauthenticate manually and refresh encrypted GitHub state.")
     else:
-        c.notify("✅ Daily TikTok check complete for WELIVE, Snacker's Box and Konomi Living.\n" + c.report())
+        labels = {"welive_main": "WELIVE", "snackersbox": "Snacker's Box", "konomi_living": "Konomi Living"}
+        c.notify("✅ Daily TikTok check complete for " + ", ".join(labels[s] for s in c.SHOPS) + ".\n" + c.report())
     return 1 if problems else 0
 
 

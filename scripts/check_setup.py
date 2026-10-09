@@ -58,7 +58,7 @@ def check_state() -> str:
     with tempfile.TemporaryDirectory(prefix="tiktok-state-check-") as d:
         unpack(blob, Path(d))
         validated = validate(Path(d))
-    return f"Encrypted history and all three session files present ({validated['verified_submission_count']} historical submitted replies)"
+    return f"Encrypted history and {len(validated['shop_sessions'])} selected shop sessions present ({validated['verified_submission_count']} historical submitted replies)"
 
 
 def check_google() -> str:

@@ -3,10 +3,19 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-SHOPS = ("welive_main", "snackersbox", "konomi_living")
+def configured_shops() -> tuple[str, ...]:
+    known = ("welive_main", "snackersbox", "konomi_living")
+    selected = tuple(x.strip() for x in os.getenv("AUTOMATION_SHOPS", ",".join(known)).split(",") if x.strip())
+    if not selected or len(set(selected)) != len(selected) or any(x not in known for x in selected):
+        raise ValueError("AUTOMATION_SHOPS must list distinct, known shop profiles")
+    return selected
+
+
+SHOPS = configured_shops()
 EXPECTED = ('replied_at', 'profile', 'queue', 'rating_filter', 'order_id',
             'username', 'product', 'review_text', 'reply_text', 'status', 'review_key')
 
