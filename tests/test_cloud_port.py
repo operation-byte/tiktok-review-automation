@@ -54,7 +54,9 @@ class CloudPortTests(unittest.TestCase):
 
     def test_controller_default_is_dry_run_and_paused(self):
         self.assertFalse(controller.SUBMIT_ENABLED)
-        self.assertTrue(controller.load_state().get("paused", True))
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(controller, "STATE_FILE", pathlib.Path(directory) / "missing.json"):
+                self.assertTrue(controller.load_state().get("paused", True))
 
 
 if __name__ == "__main__":
