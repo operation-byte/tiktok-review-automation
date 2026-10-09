@@ -33,6 +33,7 @@ jobs:
       GOOGLE_SHEETS_MODE: ${{ vars.GOOGLE_SHEETS_MODE }}
       GOOGLE_SHEET_ID: 1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs
       GOOGLE_SHEET_TAB: Backend Data
+      GOOGLE_WORKSHEET_GID: "298261214"
       GOOGLE_SHEETS_SYNC_FROM: ${{ vars.GOOGLE_SHEETS_SYNC_FROM }}
     steps:
       - uses: actions/checkout@v4

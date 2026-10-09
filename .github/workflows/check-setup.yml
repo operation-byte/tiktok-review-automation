@@ -22,6 +22,7 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_FILE: ${{ github.workspace }}/secrets/google-service-account.json
       GOOGLE_SHEET_ID: 1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs
       GOOGLE_SHEET_TAB: Backend Data
+      GOOGLE_WORKSHEET_GID: "298261214"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
