@@ -58,6 +58,8 @@ def check_state() -> str:
     with tempfile.TemporaryDirectory(prefix="tiktok-state-check-") as d:
         unpack(blob, Path(d))
         validated = validate(Path(d))
+    if validated["reviews_since"]:
+        return f"Encrypted fresh-start state and {len(validated['shop_sessions'])} shop sessions verified; only reviews dated {validated['reviews_since']} or later are eligible"
     return f"Encrypted history and {len(validated['shop_sessions'])} selected shop sessions present ({validated['verified_submission_count']} historical submitted replies)"
 
 

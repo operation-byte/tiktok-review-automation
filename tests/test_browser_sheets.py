@@ -63,3 +63,15 @@ def test_private_sheet_csv_uses_authenticated_browser_request(monkeypatch):
     request.get.return_value=SimpleNamespace(ok=True,text=lambda: 'Order ID,Date\n123,2026-10-09\n')
     monkeypatch.setattr(reviews.urllib.request,'urlopen',Mock(side_effect=AssertionError('Must use signed-in browser')))
     assert reviews.fetch_google_sheet_rows(request_context=request)[1][0]=='123'
+
+def test_worker_applies_fresh_start_cutoff(monkeypatch,tmp_path):
+    monkeypatch.chdir(tmp_path); (tmp_path/'logs').mkdir()
+    monkeypatch.setenv('TIKTOK_REVIEWS_SINCE','2026-10-10')
+    monkeypatch.setattr(controller,'state',{})
+    monkeypatch.setattr(controller,'notify',Mock())
+    captured=[]
+    def execute(args,timeout,logfile):
+        captured.extend(args); logfile.write_text('complete'); return 0,False
+    monkeypatch.setattr(controller,'execute',execute)
+    controller.job_mutex.acquire(); controller.work(['welive_main'],force_dry=True)
+    assert captured[captured.index('--since-date')+1]=='2026-10-10'

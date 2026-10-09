@@ -148,3 +148,16 @@ def test_shop_selection_excludes_konomi(monkeypatch):
     assert configured_shops()==('welive_main','snackersbox')
     monkeypatch.setenv('AUTOMATION_SHOPS','welive_main,unknown')
     with pytest.raises(ValueError): configured_shops()
+
+def test_fresh_start_accepts_empty_history_with_explicit_cutoff(monkeypatch,tmp_path):
+    import scripts.bootstrap_state as bootstrap
+    monkeypatch.setattr(bootstrap,'SHOPS',('welive_main','snackersbox'))
+    (tmp_path/'logs').mkdir(); (tmp_path/'state').mkdir(); (tmp_path/'alerts/cookie_jars').mkdir(parents=True)
+    with (tmp_path/'logs/replied_reviews.csv').open('w',newline='') as out: csv.writer(out).writerow(EXPECTED)
+    for shop in bootstrap.SHOPS: (tmp_path/f'alerts/cookie_jars/{shop}.json').write_text('[{"name":"sid","value":"test"}]')
+    (tmp_path/'state/fresh_start.json').write_text(json.dumps({'mode':'fresh_start','reviews_since':'2026-10-10'}))
+    result=bootstrap.validate(tmp_path)
+    assert result['verified_submission_count']==0
+    assert result['reviews_since']=='2026-10-10'
+    (tmp_path/'state/fresh_start.json').write_text(json.dumps({'mode':'fresh_start','reviews_since':'invalid'}))
+    with pytest.raises(RuntimeError): bootstrap.validate(tmp_path)

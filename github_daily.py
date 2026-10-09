@@ -11,6 +11,7 @@ from pathlib import Path
 
 from scripts.github_state import GitHubStateStore, StateStoreError
 from scripts.state_vault import pack, unpack
+from scripts.bootstrap_state import validate
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -53,6 +54,15 @@ def main() -> int:
     # before enabling any LIVE public posting.
     request_live = env_bool("ENABLE_SUBMIT")
     ready_for_live = has_snapshot and Path("state/history_imported.ok").is_file()
+    fresh_start = Path("state/fresh_start.json").is_file()
+    if fresh_start:
+        try:
+            validated = validate(Path("."))
+            os.environ["TIKTOK_REVIEWS_SINCE"] = validated["reviews_since"]
+            ready_for_live = has_snapshot and bool(validated["reviews_since"])
+        except (RuntimeError, ValueError, OSError):
+            c.notify("🔴 TikTok check BLOCKED: fresh-start state or review cutoff is invalid.")
+            return 2
     if request_live and not ready_for_live:
         c.notify("🔴 LIVE TikTok posting BLOCKED: historical deduplication state has not been verified and restored.")
         return 2
