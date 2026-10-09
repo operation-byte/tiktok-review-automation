@@ -1,0 +1,61 @@
+name: TikTok daily review checks
+
+on:
+  schedule:
+    # 09:15 every day, Singapore time. Runs can be delayed by GitHub.
+    - cron: "15 9 * * *"
+      timezone: "Asia/Singapore"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # only used to store encrypted state in automation-state branch
+
+concurrency:
+  group: tiktok-daily-review-state
+  cancel-in-progress: false
+
+jobs:
+  check-all-shops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    env:
+      TZ: Asia/Singapore
+      PYTHONUNBUFFERED: "1"
+      GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_ALLOWED_IDS: ${{ secrets.TELEGRAM_ALLOWED_IDS }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+      GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
+      GOOGLE_SERVICE_ACCOUNT_FILE: ${{ github.workspace }}/secrets/google-service-account.json
+      AUTOMATION_ENABLED: ${{ vars.AUTOMATION_ENABLED }}
+      ENABLE_SUBMIT: ${{ vars.ENABLE_SUBMIT }}
+      GOOGLE_SHEETS_MODE: ${{ vars.GOOGLE_SHEETS_MODE }}
+      GOOGLE_SHEET_ID: 1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs
+      GOOGLE_SHEET_TAB: Backend Data
+      GOOGLE_SHEETS_SYNC_FROM: ${{ vars.GOOGLE_SHEETS_SYNC_FROM }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Linux browser dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-github.txt
+          python -m playwright install --with-deps chromium
+      - name: Prepare private Google credentials
+        shell: bash
+        run: |
+          mkdir -p secrets
+          chmod 700 secrets
+          if [[ -n "$GOOGLE_SERVICE_ACCOUNT_B64" ]]; then
+            printf '%s' "$GOOGLE_SERVICE_ACCOUNT_B64" | base64 --decode > secrets/google-service-account.json
+            chmod 600 secrets/google-service-account.json
+          fi
+      - name: Run all three shops sequentially
+        id: run_reviews
+        run: python github_daily.py
+      - name: Alert when runner failed before reporting
+        if: failure()
+        run: python scripts/notify_failure.py

@@ -1,0 +1,20 @@
+.env
+/data/
+*.pyc
+__pycache__/
+.venv/
+*.log
+
+/secrets/
+/browser_profiles/
+/logs/
+/alerts/
+/reports/
+/observations/
+/state/
+/automation-state.enc
+/*.enc
+*.zip
+# One-time bootstrap secret: keep OUT of GitHub
+.state_key.private
+*.private

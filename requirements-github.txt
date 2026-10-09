@@ -1,0 +1,4 @@
+playwright==1.63.0
+google-auth>=2.35,<3
+requests>=2.31,<3
+cryptography>=43,<50
