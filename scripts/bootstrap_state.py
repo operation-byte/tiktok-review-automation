@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import json
 import os
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 def configured_shops() -> tuple[str, ...]:
@@ -29,17 +29,7 @@ def validate(root: Path) -> dict:
         if tuple(reader.fieldnames or ()) != EXPECTED:
             raise RuntimeError("Historical CSV headers do not match the original bot")
         submitted = sum(1 for r in reader if r.get("status") == "submitted")
-    fresh = root / "state/fresh_start.json"
-    reviews_since = ""
-    if fresh.exists():
-        try:
-            settings = json.loads(fresh.read_text())
-            reviews_since = settings["reviews_since"]
-            if settings.get("mode") != "fresh_start" or date.fromisoformat(reviews_since).isoformat() != reviews_since:
-                raise ValueError()
-        except (ValueError, KeyError, TypeError):
-            raise RuntimeError("Invalid explicit fresh-start review cutoff") from None
-    if submitted < 1 and not reviews_since:
+    if submitted < 1:
         raise RuntimeError("Historical CSV must contain verified submitted replies")
     for shop in SHOPS:
         jar_path = root / f"alerts/cookie_jars/{shop}.json"
@@ -54,7 +44,6 @@ def validate(root: Path) -> dict:
         except (ValueError, OSError):
             raise RuntimeError(f"Cookie jar missing or invalid for {shop}") from None
     return {"verified_submission_count": submitted,
-            "reviews_since": reviews_since,
             "shop_sessions": list(SHOPS),
             "acknowledged_at_utc": datetime.now(timezone.utc).isoformat()}
 

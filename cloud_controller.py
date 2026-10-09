@@ -19,7 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -220,11 +220,7 @@ def work(shops: list[str], force_dry: bool = False, login: bool = False) -> None
             else:
                 sheets_flag = "--google-sheets" if SHEETS_MODE == "browser" and SUBMIT_ENABLED and not force_dry else "--no-google-sheets"
                 args = ["auto_reply_reviews.py", "--profile", shop, "--headless", sheets_flag, "--log-path", "logs/replied_reviews.csv"]
-                cutoff = os.getenv("TIKTOK_REVIEWS_SINCE", "").strip()
-                if cutoff:
-                    if date.fromisoformat(cutoff).isoformat() != cutoff:
-                        raise ValueError("Invalid TikTok review cutoff")
-                    args.extend(["--since-date", cutoff])
+                args.extend(["--recent-days", "30"])
                 if force_dry or not SUBMIT_ENABLED:
                     args.append("--dry-run")
                 else:

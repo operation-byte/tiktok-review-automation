@@ -33,16 +33,18 @@ def test_sheet_marker_survives_encrypted_restore(tmp_path):
     target=tmp_path/'restore'; unpack(pack(source,key),target,key)
     assert (target/'logs/google_sheet_logged_keys.txt').read_text()=='review-key\n'
 
-def test_existing_order_is_skipped_without_opening_sheet(monkeypatch,tmp_path):
-    args=SimpleNamespace(google_sheets=True,google_log_attempts=False,google_sheet_marker_path=str(tmp_path/'keys'))
+def test_existing_order_does_not_suppress_different_review(monkeypatch,tmp_path):
+    args=SimpleNamespace(google_sheets=True,google_log_attempts=False,google_sheet_marker_path=str(tmp_path/'keys'),google_sheet_url='https://docs.google.com/spreadsheets/d/test/edit',google_sheet_after_paste_wait_ms=0)
     entry=reviews.ReplyLogEntry(**{key:'' for key in reviews.ReplyLogEntry.__dataclass_fields__})
-    entry.status='submitted'; entry.order_id='123'; entry.review_key='key'; entry.profile='welive_main'
+    entry.status='submitted'; entry.order_id='sample-order'; entry.review_key='different-review'; entry.profile='welive_main'
     monkeypatch.setattr(reviews,'google_sheet_contains_order_id',lambda order, **kwargs: True)
-    monkeypatch.setattr(reviews,'detect_google_sheet_next_blank_row',Mock(side_effect=AssertionError('Must skip existing order')))
-    page=Mock()
-    reviews.manual_append_google_sheet_log(page,args,entry,'2026-10-09')
-    page.context.new_page.assert_not_called()
-    assert (tmp_path/'keys').read_text().strip()=='key'
+    monkeypatch.setattr(reviews,'detect_google_sheet_next_blank_row',lambda **kwargs: 12)
+    paste=Mock(); monkeypatch.setattr(reviews,'paste_google_sheet_row',paste)
+    monkeypatch.setattr(reviews,'google_sheet_row_matches',lambda *a,**kw: True)
+    reviews.manual_append_google_sheet_log(Mock(),args,entry,'2026-10-09')
+    paste.assert_called_once()
+    assert (tmp_path/'keys').read_text().strip()=='different-review'
+
 
 def test_preflight_browser_mode_checks_sheet_without_api_key(monkeypatch):
     from scripts.check_setup import check_google
@@ -64,7 +66,7 @@ def test_private_sheet_csv_uses_authenticated_browser_request(monkeypatch):
     monkeypatch.setattr(reviews.urllib.request,'urlopen',Mock(side_effect=AssertionError('Must use signed-in browser')))
     assert reviews.fetch_google_sheet_rows(request_context=request)[1][0]=='123'
 
-def test_worker_applies_fresh_start_cutoff(monkeypatch,tmp_path):
+def test_worker_uses_rolling_window_despite_stale_cutoff(monkeypatch,tmp_path):
     monkeypatch.chdir(tmp_path); (tmp_path/'logs').mkdir()
     monkeypatch.setenv('TIKTOK_REVIEWS_SINCE','2026-10-10')
     monkeypatch.setattr(controller,'state',{})
@@ -74,4 +76,5 @@ def test_worker_applies_fresh_start_cutoff(monkeypatch,tmp_path):
         captured.extend(args); logfile.write_text('complete'); return 0,False
     monkeypatch.setattr(controller,'execute',execute)
     controller.job_mutex.acquire(); controller.work(['welive_main'],force_dry=True)
-    assert captured[captured.index('--since-date')+1]=='2026-10-10'
+    assert '--since-date' not in captured
+    assert captured[captured.index('--recent-days')+1]=='30'

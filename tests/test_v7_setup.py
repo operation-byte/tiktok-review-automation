@@ -149,47 +149,13 @@ def test_shop_selection_excludes_konomi(monkeypatch):
     monkeypatch.setenv('AUTOMATION_SHOPS','welive_main,unknown')
     with pytest.raises(ValueError): configured_shops()
 
-def test_fresh_start_accepts_empty_history_with_explicit_cutoff(monkeypatch,tmp_path):
-    import scripts.bootstrap_state as bootstrap
-    monkeypatch.setattr(bootstrap,'SHOPS',('welive_main','snackersbox'))
-    (tmp_path/'logs').mkdir(); (tmp_path/'state').mkdir(); (tmp_path/'alerts/cookie_jars').mkdir(parents=True)
-    with (tmp_path/'logs/replied_reviews.csv').open('w',newline='') as out: csv.writer(out).writerow(EXPECTED)
-    for shop in bootstrap.SHOPS: (tmp_path/f'alerts/cookie_jars/{shop}.json').write_text('[{"name":"sid","value":"test"}]')
-    (tmp_path/'state/fresh_start.json').write_text(json.dumps({'mode':'fresh_start','reviews_since':'2026-10-10'}))
-    result=bootstrap.validate(tmp_path)
-    assert result['verified_submission_count']==0
-    assert result['reviews_since']=='2026-10-10'
-    (tmp_path/'state/fresh_start.json').write_text(json.dumps({'mode':'fresh_start','reviews_since':'invalid'}))
-    with pytest.raises(RuntimeError): bootstrap.validate(tmp_path)
 
-def test_daily_restores_and_enforces_fresh_start_cutoff(monkeypatch,tmp_path):
-    import github_daily
-    import scripts.bootstrap_state as bootstrap
-    from scripts.state_vault import unpack
-    shops=('welive_main','snackersbox')
-    monkeypatch.setattr(bootstrap,'SHOPS',shops)
-    monkeypatch.chdir(tmp_path)
-    (tmp_path/'logs').mkdir(); (tmp_path/'state').mkdir(); (tmp_path/'alerts/cookie_jars').mkdir(parents=True)
-    with (tmp_path/'logs/replied_reviews.csv').open('w',newline='') as out: csv.writer(out).writerow(EXPECTED)
-    for shop in shops: (tmp_path/f'alerts/cookie_jars/{shop}.json').write_text('[{"name":"sid","value":"test"}]')
-    (tmp_path/'state/fresh_start.json').write_text(json.dumps({'mode':'fresh_start','reviews_since':'2026-10-10'}))
-    key=Fernet.generate_key().decode(); blob=pack(tmp_path,key)
-    (tmp_path/'state/fresh_start.json').unlink()
-    monkeypatch.setenv('STATE_ENCRYPTION_KEY',key)
-    monkeypatch.setenv('AUTOMATION_ENABLED','true'); monkeypatch.setenv('ENABLE_SUBMIT','false')
-    monkeypatch.setenv('TIKTOK_REVIEWS_SINCE','2020-01-01')
-    worked=[]
-    fake=types.SimpleNamespace(state={},load_state=lambda:{},notify=lambda message:None,SHOPS=shops,SHEETS_MODE='browser',job_mutex=types.SimpleNamespace(acquire=lambda timeout:True),report=lambda:'done')
-    def work(selected,force_dry):
-        assert force_dry and fake.SHEETS_MODE=='off'
-        assert os.environ['TIKTOK_REVIEWS_SINCE']=='2026-10-10'
-        worked.extend(selected)
-        fake.state.setdefault('shops',{})[selected[0]]={'status':'dry run complete'}
-    fake.work=work
-    monkeypatch.setitem(sys.modules,'cloud_controller',fake)
-    class Store:
-        def fetch(self): return blob
-        def save(self,encrypted): pass
-    monkeypatch.setattr(github_daily,'GitHubStateStore',Store)
-    assert github_daily.main()==0
-    assert worked==list(shops)
+def test_old_script_rolling_30_day_boundaries():
+    from datetime import date
+    from auto_reply_reviews import is_recent_review,build_parser
+    assert build_parser().parse_args([]).recent_days==30
+    assert is_recent_review('2026-09-09',today=date(2026,10,9),recent_days=30)
+    assert is_recent_review('2026-09-25',today=date(2026,10,9),recent_days=30)
+    assert is_recent_review('2026-10-09',today=date(2026,10,9),recent_days=30)
+    assert not is_recent_review('2026-09-08',today=date(2026,10,9),recent_days=30)
+    assert not is_recent_review('',today=date(2026,10,9),recent_days=30)

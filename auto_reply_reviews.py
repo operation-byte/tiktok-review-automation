@@ -872,12 +872,6 @@ def manual_append_google_sheet_log(page, args, entry: ReplyLogEntry, review_date
     sheet_page = None
 
     try:
-        if not entry.order_id.strip():
-            raise RuntimeError("Missing order ID; cannot safely deduplicate Sheet row")
-        if google_sheet_contains_order_id(entry.order_id, request_context=page.context.request):
-            mark_sheet_logged(marker_path, entry.review_key)
-            print("Google Sheet manual logging skipped order already present in Sheet")
-            return
         target_row = detect_google_sheet_next_blank_row(request_context=page.context.request)
         target_cell = f"A{target_row}"
         print(f"Google Sheet target cell detected: {target_cell}")

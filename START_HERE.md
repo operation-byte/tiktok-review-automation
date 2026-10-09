@@ -2,7 +2,7 @@
 
 ## Current deployment
 
-This deployment selects **WELIVE and Snacker's Box only** (`AUTOMATION_SHOPS=welive_main,snackersbox`); Konomi Living is excluded. Google Sheets uses the original browser writer with authenticated CSV reads from `Backend Data`, `gid=298261214`. No JSON key is required. The explicit fresh-start marker restricts processing to reviews dated **10 October 2026 or later**, instead of claiming historical replies were imported. Local logins and Sheet reads have been verified. Encrypted sessions are stored in the private GitHub state branch; their key is a GitHub Secret. Use `dry-run.yml` for manual cloud validation. Both shops passed the cloud dry run and a live-mode run on 9 October 2026. The live run submitted zero replies and added zero Sheet rows under the 10 October cutoff. The user approved activation: daily checks at 09:15 Singapore time, public replies and browser Sheet logging are now enabled. Actual reply submission and Sheet row entry remain unexercised until an eligible review is processed.
+This deployment selects **WELIVE and Snacker's Box only** (`AUTOMATION_SHOPS=welive_main,snackersbox`); Konomi Living is excluded. It uses the original **rolling 30-day review window**, including the boundary day, with no fixed start date. Already-replied reviews are skipped using TikTok's unreplied queues and the imported reply ledger. The original ZIP's 130 submitted reply records and 129 unique Sheet markers were merged with current cloud state while preserving current logins. Google Sheets uses the original browser writer with authenticated CSV reads from `Backend Data`, `gid=298261214`. Only verified new replies produce Sheet rows, with duplicate detection by review key rather than order ID. Existing older Sheet rows are retained. The daily schedule is 09:15 Singapore time, and Telegram reports results or login issues.
 
 **No credit card, no Oracle VM, no need to leave Windows on.** GitHub Actions runs the **original Python/Playwright** review checks at **09:15 Asia/Singapore** each day. Reviews go into your existing **[TikTok Negative Review KPI](https://docs.google.com/spreadsheets/d/1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs/edit)**, tab `Backend Data`, once its Google service-account permissions are configured. Telegram warns when login is required.
 
@@ -16,7 +16,7 @@ This deployment selects **WELIVE and Snacker's Box only** (`AUTOMATION_SHOPS=wel
 
 ## Connecting the *same* Google Sheet
 
-Browser mode reuses the original Playwright row writer and needs no service-account key. Set the repository variable `GOOGLE_SHEETS_MODE=browser`. Only verified live submissions append rows; dry runs leave the Sheet untouched. The writer checks existing order IDs and preserves `logs/google_sheet_logged_keys.txt` in encrypted state across runs. Sheet failures send a Telegram alert; review the saved CSV and Sheet before retrying.
+Browser mode reuses the original Playwright row writer and needs no service-account key. Set the repository variable `GOOGLE_SHEETS_MODE=browser`. Only verified live submissions append rows; dry runs leave the Sheet untouched. The writer checks review keys and preserves `logs/google_sheet_logged_keys.txt` in encrypted state across runs. Sheet failures send a Telegram alert; review the saved CSV and Sheet before retrying.
 
 For each shop's local automation browser, log into TikTok and open the existing KPI Sheet in another tab. Sign into Google if editing requires it, then save that browser session. The saved state must include both TikTok and Google access. The writer reads the CSV export through the authenticated browser before appending and verifying rows. The setup check can read headers anonymously when permitted; private-sheet validation is deferred until Google login. Cloud session portability must be validated before enabling replies. Do not make a private Sheet public to work around access failures.
 
@@ -36,7 +36,7 @@ If TikTok expires a shop session, the daily job stops processing that shop, flag
 
 ## Safety / running costs
 
-- All scheduled runs are sequential: **WELIVE → Snacker's Box → Konomi Living**.
+- All scheduled runs are sequential: **WELIVE → Snacker's Box**.
 - The automation will try the first cloud dry-run, but some parts cannot be verified until GitHub, Telegram, Google and TikTok authenticate.
 - It restores encrypted customer review history every run; private encryption key stays in GitHub Secrets and separately on your own computer.
 - It never enables public posting without your supervision (`ENABLE_SUBMIT=false`). Once verified, change the repository Actions variable `ENABLE_SUBMIT` to `true` and ensure old Windows scheduled jobs are OFF.
