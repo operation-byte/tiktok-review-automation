@@ -605,13 +605,13 @@ def build_google_sheet_row(entry: ReplyLogEntry, review_date: str) -> list[str]:
         google_review_type(entry),
         google_review_category(entry),
         replied_value,
-        "",  # Followed up on Duoke: the bot cannot know this.
-        "",  # Did Customer Reply: leave to the team.
-        "",  # Changed Rating: leave to the team.
-        "",  # IC: never invent an assignee.
-        "",  # Message Template: leave to the team.
-        "",  # Follow Up: leave to the team.
-        "",  # Status: leave to the team.
+        "No",  # Followed up on Duoke.
+        "No",  # Did Customer Reply.
+        "",  # Changed Rating - left blank for the team to update manually.
+        "Fred",  # IC.
+        "",  # Message Template - left blank unless assigned manually.
+        "Once",  # Follow Up.
+        "Ongoing",  # Status.
     ]
 
 

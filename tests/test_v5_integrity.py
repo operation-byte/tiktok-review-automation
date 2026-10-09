@@ -15,7 +15,7 @@ from auto_reply_reviews import ReplyLogEntry, build_google_sheet_row
 
 
 class V5IntegrityTests(unittest.TestCase):
-    def test_sheet_row_does_not_invent_followups_or_staff(self):
+    def test_sheet_row_preserves_original_workflow_defaults(self):
         row = build_google_sheet_row(ReplyLogEntry(
             replied_at='2026-10-09T12:00:00+08:00', profile='welive_main',
             queue='negative', rating_filter='1,2', order_id='TEST-123',
@@ -24,7 +24,7 @@ class V5IntegrityTests(unittest.TestCase):
         self.assertEqual(len(row), 13)
         self.assertEqual(row[0], 'TEST-123')
         self.assertEqual(row[5], 'Yes')
-        self.assertEqual(row[6:], [''] * 7)
+        self.assertEqual(row[6:], ['No', 'No', '', 'Fred', '', 'Once', 'Ongoing'])
 
     def test_failed_relogin_remains_in_daily_reminder(self):
         stamp = datetime(2026, 10, 9, 9, 15, tzinfo=ZoneInfo('Asia/Singapore'))
