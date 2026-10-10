@@ -78,6 +78,7 @@ ISSUES = (
      r'(?:service|support)\s+(?:is|was)\s+(?:bad|poor)|not responding)\b'),
     ('Price / Value',
      r'\b(?:expensive|not worth|overpriced|price too high|small portion|portion too small|'
+     r'(?:with\s*)?no ingredients|not much ingredients|'
      r'(?:filling|portion|ingredients|serving)\s+(?:is\s+|are\s+)?(?:very\s+)?(?:little|small))\b'
      r'|料很少|分量少|太贵'),
     ('Taste / Product Quality',
@@ -92,6 +93,7 @@ NOT_TRIED_PATTERN = (r"\b(?:yet to (?:try|taste)|not (?:yet )?(?:tried|try|taste
                      r"(?:haven't|havent|have not|hasn't) (?:tried|try|tasted)|review later)\b")
 PRAISE_PATTERN = r'\b(?:good|great|nice|delicious|tasty|love|loved|well packed|fast delivery|buy again|like the taste|arrived safely|delivered on time)\b'
 NEGATIVE_PATTERN = (r"\b(?:not|don't|dont|didn't|didnt|doesn't|doesnt|does not|aren't|arent|"
+                    r"too (?:salty|sweet|sour|spicy|bitter)|"
                     r"wasn't|wasnt|stale|rancid|lemau|laohong|weird|soft|watery|bitter|"
                     r"disappointed|disappointing|bad|poor|overhyped)\b")
 

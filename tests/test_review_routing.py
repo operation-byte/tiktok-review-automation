@@ -150,3 +150,11 @@ def test_unknown_response_count_requires_inspection():
     result = process_queue(lambda: PageScan(PageState.LOADED_WITH_ROWS,(card,)),
         lambda card: ItemDecision(ItemAction.REPLY,'test'),must_not_submit)
     assert result.held_manual == 1
+
+
+@pytest.mark.parametrize('text,category', [
+    ('Taste good and a bit too salty for me', 'Taste / Product Quality'),
+    ('Tastes good but withno ingredients at all', 'Price / Value'),
+])
+def test_praise_does_not_hide_concern_in_same_sentence(text, category):
+    assert decision(text).category == category
