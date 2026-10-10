@@ -21,6 +21,8 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+import review_policy
+
 from queue_processor import ItemAction, ItemDecision, QueueOutcome, process_paginated_queue
 from reply_submission import SubmissionOutcome, submit_reply as submit_review_reply
 from review_detection import PageState, ReviewCard, scan_review_page
@@ -56,7 +58,8 @@ DEFAULT_REPLY_TEXT = (
     "with your order details so our team can assist you."
 )
 DEFAULT_NEUTRAL_REPLY_TEXT = (
-    "Thank you for sharing your feedback. We are sorry that your experience did not fully meet expectations. Please contact us via chat with your order details so we can look into the issue and assist where possible. We appreciate your support and will continue improving our service."
+    "Thank you for sharing your feedback. If there is anything you would like us "
+    "to look into, please contact us via TikTok Shop chat with your order details."
 )
 
 SERIOUS_CONCERN_REPLY_TEXT = (
@@ -67,21 +70,6 @@ SERIOUS_CONCERN_REPLY_TEXT = (
 )
 
 
-# Reply-routing is intentionally kept in this file so the scheduled auto-reply
-# run and any manual-review workflow can use the same decision table.
-SELF_HEATING_PRODUCT_MARKERS = (
-    "self heating", "self-heating", "chwee song", "heating soup",
-)
-
-HIGH_RISK_REVIEW_MARKERS = (
-    "food poisoning", "food poison", "made me sick", "fell sick", "hospital",
-    "allergic", "allergy", "anaphyl", "mould", "mold", "insect", "bug",
-    "foreign object", "glass", "metal", "poison", "counterfeit", "fake",
-    "fraud", "scam", "legal action", "police report", "hsa", "case against",
-    "made in china", "from japan", "country of origin", "fooled",
-    "cheated", "cheat",
-)
-
 AUTO_REPLY_TERMINAL_STATUSES = {
     "submitted",
     # Submit was clicked but TikTok gave no positive verification. Never retry
@@ -91,55 +79,6 @@ AUTO_REPLY_TERMINAL_STATUSES = {
     "needs_manual_review_missing_date",
     "needs_manual_review_high_risk",
 }
-
-REPLY_TEMPLATES = {
-    "Product Usability / Instructions": (
-        "We are sorry to hear that. Please contact us via TikTok Shop chat with "
-        "your order details so our team can guide you and assist further."
-    ),
-    "Damaged / Packaging": (
-        "We are sorry your item arrived in this condition. Please contact us via "
-        "TikTok Shop chat with your order details and clear photos or videos of "
-        "the item and outer packaging so we can check and assist."
-    ),
-    "Missing / Wrong Item": (
-        "We are sorry about this. Please contact us via TikTok Shop chat with "
-        "your order details and a photo of the items received so we can check "
-        "and assist."
-    ),
-    "Delivery / Fulfilment": (
-        "We are sorry to hear about the delivery experience. Please contact us "
-        "via TikTok Shop chat with your order details and any relevant photos so "
-        "we can look into this and assist."
-    ),
-    "Expiry / Date Concern": (
-        "We are sorry for the concern. Please contact us via TikTok Shop chat "
-        "with your order details and a clear photo of the date marking and "
-        "packaging so we can verify and assist."
-    ),
-    "Taste / Product Quality": (
-        "We are sorry the product did not meet your expectations. We understand "
-        "taste can be subjective, and we appreciate your feedback. Please contact "
-        "us via TikTok Shop chat with your order details if there is a product "
-        "quality concern for us to check."
-    ),
-    "Customer Service": (
-        "We sincerely apologise for the experience. Please contact us via TikTok "
-        "Shop chat with your order details so our team can review this and assist."
-    ),
-    "Price / Value": (
-        "Thank you for your feedback. We are sorry the product did not meet your "
-        "expectations on value, and we will share this with the team for review."
-    ),
-    "Other / Needs Review": DEFAULT_REPLY_TEXT,
-}
-
-SELF_HEATING_USAGE_REPLY_TEXT = (
-    "We are sorry to hear this. For the self-heating soup, please pull the red "
-    "ribbon or string firmly and fully in one smooth motion to activate the "
-    "heating pack. If it still does not heat properly after about 5 minutes, "
-    "please contact us via TikTok Shop chat with your order details so we can assist."
-)
 
 # This cloud version uses isolated browser profiles under a persistent Docker volume.
 _PROFILE_ROOT = Path(os.getenv("PROFILE_ROOT", "browser_profiles"))
@@ -261,6 +200,9 @@ def is_recent_review(
     parsed = parse_iso_date(review_date)
     if not parsed:
         return False
+    today = today or datetime.now().astimezone().date()
+    if parsed > today:
+        return False
     if since_date is not None:
         return parsed >= since_date
     if recent_days <= 0:
@@ -286,7 +228,7 @@ def review_date_action(review_date: str, *, recent_days: int, since_date: date |
 
 def clean_review_text(value: str) -> str:
     """Remove TikTok UI metadata so only the buyer's written review is routed."""
-    text = compact_text(value, 1000)
+    text = compact_text(value, 10000)
     if not text:
         return ""
 
@@ -302,11 +244,14 @@ def clean_review_text(value: str) -> str:
     ):
         return ""
 
-    return compact_text(text, 300)
+    # Updated labels and prior seller responses are UI content, not buyer feedback.
+    text = re.sub(r"^\|?Updated\s+(?:\d+|a|an)\s+\w+\s+ago\s*", "", text, flags=re.I)
+    text = re.split(r"\s+\d+\s+response\(s\)", text, maxsplit=1, flags=re.I)[0]
+    return text.strip()
 
 
 def extract_review_summary(raw_text: str) -> dict[str, str]:
-    text = compact_text(raw_text, 2000)
+    text = compact_text(raw_text, 20000)
     order_match = re.search(r"Order ID:\s*(\d+)", text, flags=re.IGNORECASE)
     product_match = re.search(
         r"Product ID:\s*\d+\s*(.*?)(?:\s+@\S+\s+Reply\b|\s+Reply\b|\s+Review details?\b|$)",
@@ -397,95 +342,8 @@ def profile_label(profile: str) -> str:
 
 
 def classify_review_category(review_text: str, product: str = "") -> str:
-    """Classify the buyer's text once, then reuse it for Sheet and reply routing."""
-    review = re.sub(r"\s+", " ", (review_text or "").lower()).strip()
-    usability_keywords = (
-        "hard to pull", "difficult to pull", "cannot pull", "can't pull",
-        "cant pull", "pull tab", "pull string", "pulling the string",
-        "heating tab", "doesn't heat", "doesnt heat", "does not heat",
-        "not heat", "cannot heat", "heat up", "hard to open",
-        "difficult to open", "cannot open", "can't open", "cant open",
-        "instruction", "instructions", "how to use",
-    )
-    if any(keyword in review for keyword in usability_keywords):
-        return "Product Usability / Instructions"
-
-    # The order matters. Specific operational complaints should win over generic
-    # words such as "bad", "small", or "quality".
-    rules = [
-        (
-            "Missing / Wrong Item",
-            (
-                "missing", "wrong item", "wrong product", "incorrect item",
-                "didn't receive", "did not receive", "not received",
-                "short of", "short item", "less item", "missing item",
-            ),
-        ),
-        (
-            "Damaged / Packaging",
-            (
-                "damage", "damaged", "defect", "defected", "defective", "broken",
-                "burst", "leak", "leaked", "leaking", "dent", "dented",
-                "crushed", "spill", "spilled", "packaging", "packet torn",
-                "box torn", "arrived open",
-            ),
-        ),
-        (
-            "Expiry / Date Concern",
-            (
-                "expiry", "expired", "expire", "near expiry", "best before",
-                "manufacturing date", "mfg", "shelf life", "date marking",
-            ),
-        ),
-        (
-            "Delivery / Fulfilment",
-            (
-                "delivery", "delivered late", "received late", "delay", "delayed",
-                "slow shipping", "slow delivery", "courier", "spx", "shipment",
-                "shipping", "parcel",
-            ),
-        ),
-        (
-            "Product Usability / Instructions",
-            (
-                "hard to pull", "difficult to pull", "cannot pull", "can't pull",
-                "cant pull", "pull tab", "pull string", "pulling the string",
-                "heating tab", "doesn't heat", "doesn’t heat", "doesnt heat",
-                "does not heat", "not heat", "cannot heat", "heat up",
-                "hard to open", "difficult to open", "cannot open", "can't open",
-                "cant open", "instruction", "instructions", "how to use",
-            ),
-        ),
-        (
-            "Customer Service",
-            (
-                "customer service", "seller response", "seller reply", "no response",
-                "did not reply", "didn't reply", "rude", "attitude", "support",
-                "help from seller",
-            ),
-        ),
-        (
-            "Price / Value",
-            (
-                "too expensive", "expensive", "not worth", "overpriced",
-                "price too high", "small portion", "portion too small",
-            ),
-        ),
-        (
-            "Taste / Product Quality",
-            (
-                "taste", "tastes", "tasted", "flavour", "flavor", "bland", "salty",
-                "sweet", "sour", "bitter", "spicy", "not nice", "stale", "rancid",
-                "quality", "disappointed", "not fresh", "not to my liking",
-                "doesn't taste", "doesnt taste",
-            ),
-        ),
-    ]
-
-    for category, keywords in rules:
-        if any(keyword in review for keyword in keywords):
-            return category
-    return "Other / Needs Review"
+    """Use exactly the same text classification for replies and new Sheet rows."""
+    return " + ".join(review_policy.categories(clean_review_text(review_text)))
 
 
 @dataclass(frozen=True)
@@ -497,14 +355,8 @@ class ReplyDecision:
     status: str
 
 
-def is_self_heating_product(product: str) -> bool:
-    product_text = (product or "").lower()
-    return any(marker in product_text for marker in SELF_HEATING_PRODUCT_MARKERS)
-
-
 def has_high_risk_review_marker(review_text: str) -> bool:
-    review = (review_text or "").lower()
-    return any(marker in review for marker in HIGH_RISK_REVIEW_MARKERS)
+    return review_policy.is_serious(clean_review_text(review_text))
 
 
 def select_reply_decision(queue: ReviewQueue, summary: dict[str, str], args) -> ReplyDecision:
@@ -548,31 +400,8 @@ def select_reply_decision(queue: ReviewQueue, summary: dict[str, str], args) -> 
             status="ready",
         )
 
-    if category == "Product Usability / Instructions" and is_self_heating_product(product):
-        return ReplyDecision(
-            reply_text=SELF_HEATING_USAGE_REPLY_TEXT,
-            category=category,
-            template_name="self_heating_usage",
-            auto_submit=True,
-            status="ready",
-        )
-
-    # A neutral rating with no recognised complaint remains a simple thank-you.
-    if queue.name == "neutral" and category == "Other / Needs Review":
-        return ReplyDecision(
-            reply_text=args.neutral_reply_text,
-            category=category,
-            template_name="neutral_default",
-            auto_submit=True,
-            status="ready",
-        )
-
-    reply_text = REPLY_TEMPLATES.get(category)
-    if not reply_text:
-        reply_text = args.neutral_reply_text if queue.name == "neutral" else args.negative_reply_text
-
     return ReplyDecision(
-        reply_text=reply_text,
+        reply_text=review_policy.compose_reply(review_policy.categories(review_text)),
         category=category,
         template_name=category.lower().replace(" / ", "_").replace(" ", "_"),
         auto_submit=True,

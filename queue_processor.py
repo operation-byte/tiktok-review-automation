@@ -110,6 +110,13 @@ def process_queue(scan: Callable[[], PageScan], decide: Callable[[ReviewCard], I
             # but only rows with a current Reply action may enter submission.
             if not card.has_reply:
                 continue
+            # Some views retain a Reply control even after a seller response.
+            # The ledger is a second defence, not the only evidence of a reply.
+            if card.response_count is None or card.response_count < 0:
+                progress.held_manual.add(card.key)
+                continue
+            if card.response_count > 0:
+                continue
             decision = decide(card)
             if decision.action is ItemAction.SKIP_OLD:
                 progress.skipped_old.add(card.key)
