@@ -58,6 +58,7 @@ The existing stock-count commands remain intact; review controls use `/tt_`:
 | `/tt_dryrun` | Diagnose without public replies or Sheet writes |
 | `/tt_pause` | Pause future live review runs; let an active run finish safely |
 | `/tt_resume` | Restore daily 09:15 SGT runs; does not immediately post |
+| `/tt_login` | Shows a button for each shop; tap one to get its private login browser link |
 | `/tt_login welive_main` | Private WELIVE login browser link |
 | `/tt_login snackersbox` | Private Snacker's Box login browser link |
 | `/tt_login konomi_living` | Private Konomi Living login browser link |

@@ -12,9 +12,9 @@ function connect(){
   rfb=new RFB(document.getElementById('screen'),`${location.origin.replace('https:','wss:')}/vnc/${id}`);
   rfb.scaleViewport=true;rfb.resizeSession=false;
   rfb.addEventListener('connect',()=>{waiting=false;message('Browser ready. Sign in to TikTok, then open Product Ratings and tap Verify & save login.');});
-  rfb.addEventListener('disconnect',()=>{if(waiting){message('Browser starting. Reconnecting automatically…');retryTimer=setTimeout(connect,7000);}else message('Browser disconnected. Tap Reconnect browser, or request a new link if the session expired.');});
+  rfb.addEventListener('disconnect',()=>{if(waiting){message('Browser starting. Reconnecting automatically…');retryTimer=setTimeout(connect,3000);}else message('Browser disconnected. Tap Reconnect browser, or request a new link if the session expired.');});
   rfb.addEventListener('securityfailure',()=>{waiting=false;message('Connection rejected. Request a new private link in Telegram.');});
- }catch{retryTimer=setTimeout(connect,7000)}
+ }catch{retryTimer=setTimeout(connect,3000)}
 }
 document.getElementById('connect').onclick=()=>{waiting=true;connect()};
 document.getElementById('save').onclick=async()=>{

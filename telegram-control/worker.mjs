@@ -1,6 +1,7 @@
 import {viewerHtml, openHtml} from './pages.mjs';
 const SHOPS=['welive_main','snackersbox','konomi_living'];
 const WORKFLOWS=['daily-reviews.yml','dry-run.yml','relogin.yml'];
+const LABELS={welive_main:'WELIVE',snackersbox:"Snacker's Box",konomi_living:'Konomi Living'};
 const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'};
 const reply=(text,status=200)=>new Response(text,{status,headers});
 const json=value=>new Response(JSON.stringify(value),{headers:{...headers,'Content-Type':'application/json'}});
@@ -10,25 +11,39 @@ export function authorised(message,owner){return message?.chat?.type==='private'
 export function parseCommand(text=''){
  const parts=text.trim().toLowerCase().split(/\s+/);const name=parts[0].split('@')[0];
  if(!name.startsWith('/tt_'))return null;
- const action=name.slice(4),shop=parts[1]||'all';
+ const action=name.slice(4);
+ if(action==='login'&&parts.length===1)return {action,shop:''};
+ const shop=parts[1]||'all';
  if(!['help','status','errors','run','dryrun','pause','resume','login','loginstatus'].includes(action)||parts.length>2||!['all',...SHOPS].includes(shop)||(action==='login'&&shop==='all'))return {error:true};
  return {action,shop};
 }
+export function parseCallback(data=''){const shop=typeof data==='string'&&data.startsWith('tt_login:')?data.slice(9):'';return SHOPS.includes(shop)?{action:'login',shop}:null;}
+export function authorisedCallback(cq,owner){return String(cq?.from?.id)===owner && cq?.message?.chat?.type==='private' && String(cq.message.chat.id)===owner;}
 export const validSession=(s,now=Date.now())=>!!s && s.expires>now && ['starting','ready'].includes(s.status);
-const HELP='TikTok reviews\n/tt_status — latest run and login status\n/tt_run [shop|all] — live review check\n/tt_dryrun [shop|all] — no posting\n/tt_pause — pause future live runs\n/tt_resume — enable daily runs\n/tt_login welive_main\n/tt_login snackersbox\n/tt_login konomi_living\n/tt_errors — recent failures and recovery\nShop names: welive_main, snackersbox, konomi_living.\nRelogin opens a private browser link on phone or computer. Never send passwords or OTPs in chat.';
+const HELP='TikTok reviews\n/tt_status — latest run and login status\n/tt_run [shop|all] — live review check\n/tt_dryrun [shop|all] — no posting\n/tt_pause — pause future live runs\n/tt_resume — enable daily runs\n/tt_login — pick a shop to log in (buttons)\n/tt_errors — recent failures and recovery\nShop names: welive_main, snackersbox, konomi_living.\nRelogin opens a private browser link on phone or computer. Never send passwords or OTPs in chat.';
 export class Control{
  constructor(ctx,env){this.ctx=ctx;this.env=env;this.agent=null;this.viewer=null;this.pending=[];this.busy=false;this.commandQueue=Promise.resolve();}
- async say(text){const r=await fetch(`https://api.telegram.org/bot${this.env.BOT_TOKEN}/sendMessage`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:this.env.OWNER_ID,text,link_preview_options:{is_disabled:true}}),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('Telegram delivery failed');}
+ async tg(method,body){const r=await fetch(`https://api.telegram.org/bot${this.env.BOT_TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('Telegram delivery failed');}
+ async say(text,extra={}){await this.tg('sendMessage',{chat_id:this.env.OWNER_ID,text,link_preview_options:{is_disabled:true},...extra});}
  async gh(path,method='GET',body){const r=await fetch(`https://api.github.com/repos/${this.env.REPO}${path}`,{method,headers:{Authorization:`Bearer ${this.env.GH_TOKEN}`,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'tiktok-telegram-control','Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(`GitHub ${r.status}`);return r.status===204?null:r.json();}
  async update(u){const task=this.commandQueue.then(()=>this.handleUpdate(u));this.commandQueue=task.catch(()=>{});return task;}
  async handleUpdate(u){
-  if(!authorised(u.message,this.env.OWNER_ID)||!Number.isSafeInteger(u.update_id))return;
+  const cb=!u.message&&u.callback_query?u.callback_query:null;
+  if(!(cb?authorisedCallback(cb,this.env.OWNER_ID):authorised(u.message,this.env.OWNER_ID))||!Number.isSafeInteger(u.update_id))return;
   // Storage write before dispatch prevents retries from posting twice.
   let seen=await this.ctx.storage.get('seen')||[];if(seen.includes(u.update_id))return;
   seen.push(u.update_id);await this.ctx.storage.put('seen',seen.slice(-256));
   if(this.busy){await this.say('Another command is being handled. Please try again shortly.');return;}
   this.busy=true;
-  try{await this.command(parseCommand(u.message.text),u.update_id);}catch(e){await this.say(`TikTok command could not complete (${String(e.message).slice(0,80)}). Use /tt_status before retrying; a request may already have started.`);}finally{this.busy=false;}
+  try{
+   if(cb){
+    const cmd=parseCallback(cb.data);
+    await this.tg('answerCallbackQuery',{callback_query_id:cb.id,text:cmd?'Starting login for '+LABELS[cmd.shop]:'That button is no longer valid.'}).catch(()=>{});
+    if(!cmd)return;
+    await this.tg('editMessageReplyMarkup',{chat_id:cb.message.chat.id,message_id:cb.message.message_id,reply_markup:{inline_keyboard:[]}}).catch(()=>{});
+    await this.command(cmd,u.update_id);
+   }else await this.command(parseCommand(u.message.text),u.update_id);
+  }catch(e){await this.say(`TikTok command could not complete (${String(e.message).slice(0,80)}). Use /tt_status before retrying; a request may already have started.`);}finally{this.busy=false;}
  }
  async runs(){return (await this.gh('/actions/runs?per_page=30')).workflow_runs.filter(r=>WORKFLOWS.some(w=>r.path===`.github/workflows/${w}`));}
  async command(cmd,updateId){
@@ -40,6 +55,7 @@ export class Control{
    await this.gh('/actions/variables/AUTOMATION_ENABLED','PATCH',{name:'AUTOMATION_ENABLED',value:action==='resume'?'true':'false'});
    return this.say(action==='pause'?'Future live review runs paused. An already-running shop is allowed to finish and save its history.':'Daily reviews enabled for 09:15 Singapore time. Use /tt_run for a check now.');
   }
+  if(action==='login'&&!shop)return this.say('Which shop do you want to log in to?',{reply_markup:{inline_keyboard:SHOPS.map(s=>[{text:LABELS[s],callback_data:'tt_login:'+s}])}});
   if(['status','loginstatus','errors'].includes(action)){
    const runs=await this.runs();const enabled=await this.gh('/actions/variables/AUTOMATION_ENABLED');
    const state=await this.ctx.storage.get('summary');
@@ -64,7 +80,7 @@ export class Control{
    await stub.fetch('https://internal/create',{method:'POST',body:JSON.stringify({shop,keyHash:await hash(key),expires:Date.now()+35*60000,status:'starting'})});
    link=`${this.env.PUBLIC_URL}/open/${inputs.session}#${key}`;
   }
-  await this.gh(`/actions/workflows/${workflow}/dispatches`,'POST',{ref:'main',inputs});
+  try{await this.gh(`/actions/workflows/${workflow}/dispatches`,'POST',{ref:'main',inputs});}catch(e){await this.ctx.storage.delete('lastDispatch');throw e;}
   await this.say(action==='login'?`Login requested for ${shop}. Tap your private link below; it will show a waiting screen until the browser is ready:\n${link}\nSign into TikTok in the browser screen and tap Verify & save login. Do not forward this link or share passwords in chat.`:`Requested ${action==='run'?'live':'dry'} check for ${shop}. Results will arrive here. Use /tt_status for progress.`);
  }
  async alarm(){this.close();await this.ctx.storage.deleteAll();}
@@ -117,6 +133,7 @@ export default {async fetch(request,env){
   if(request.headers.get('X-Telegram-Bot-Api-Secret-Token')!==env.WEBHOOK_SECRET)return reply('Forbidden',403);
   const body=await request.text();if(body.length>100000)return reply('Too large',413);
   let u;try{u=JSON.parse(body);}catch{return reply('Bad JSON',400);}
+  if(u.callback_query&&parseCallback(u.callback_query.data)){if(!authorisedCallback(u.callback_query,env.OWNER_ID))return reply('ok');return control().fetch('https://internal/command',{method:'POST',body});}
   if(parseCommand(u.message?.text)){if(!authorised(u.message,env.OWNER_ID))return reply('ok');return control().fetch('https://internal/command',{method:'POST',body});}
   return fetch(env.ORIGINAL_WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},body,redirect:'follow'});
  }

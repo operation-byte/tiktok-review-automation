@@ -12,7 +12,7 @@ The deployed Worker is `tiktok-review-control` (do **not** overwrite `welivebot`
 
 ## Login UX
 
-Send `/tt_login welive_main`, `/tt_login snackersbox`, or `/tt_login konomi_living` to the bot. Open the private link; it now forwards to the browser automatically. The browser reconnects during startup. Sign in to TikTok in the remote browser, navigate to Product Ratings, and tap **Verify & save login**. Confirm Telegram success before executing a dry-run.
+Send `/tt_login` to the bot and tap the shop button (typing `/tt_login <shop>` still works). Open the private link; it now forwards to the browser automatically. The browser reconnects during startup. Sign in to TikTok in the remote browser, navigate to Product Ratings, and tap **Verify & save login**. Confirm Telegram success before executing a dry-run.
 
 ## Known limits
 

@@ -9,7 +9,7 @@ on:
     inputs:
       shop:
         type: choice
-        options: [all, welive_main, snackersbox]
+        options: [all, welive_main, snackersbox, konomi_living]
         default: all
         description: Shop to check
 
@@ -38,7 +38,7 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
       GOOGLE_SERVICE_ACCOUNT_FILE: ${{ github.workspace }}/secrets/google-service-account.json
       AUTOMATION_ENABLED: ${{ vars.AUTOMATION_ENABLED }}
-      AUTOMATION_SHOPS: ${{ vars.AUTOMATION_SHOPS || 'welive_main,snackersbox' }}
+      AUTOMATION_SHOPS: ${{ vars.AUTOMATION_SHOPS || 'welive_main,snackersbox,konomi_living' }}
       ENABLE_SUBMIT: ${{ vars.ENABLE_SUBMIT }}
       GOOGLE_SHEETS_MODE: ${{ vars.GOOGLE_SHEETS_MODE }}
       GOOGLE_SHEET_ID: 1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs
@@ -46,15 +46,16 @@ jobs:
       GOOGLE_WORKSHEET_GID: "298261214"
       GOOGLE_SHEETS_SYNC_FROM: ${{ vars.GOOGLE_SHEETS_SYNC_FROM }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install Linux browser dependencies
+          cache: pip
+          cache-dependency-path: requirements-github.txt
+      - name: Install Python packages and headless Chromium
         run: |
-          python -m pip install --upgrade pip
           python -m pip install -r requirements-github.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps --only-shell chromium
       - name: Prepare private Google credentials
         shell: bash
         run: |
@@ -68,5 +69,5 @@ jobs:
         id: run_reviews
         run: python github_daily.py
       - name: Alert when runner failed before reporting
-        if: failure()
+        if: failure() || cancelled()
         run: python scripts/notify_failure.py

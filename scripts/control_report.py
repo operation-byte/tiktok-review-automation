@@ -13,7 +13,7 @@ def publish(state):
         return
     payload={'when':datetime.now(ZoneInfo('Asia/Singapore')).isoformat(timespec='seconds'),
              'shops':{shop:{k:row.get(k) for k in ('status','login_needed','when')}
-                      for shop,row in state.get('shops',{}).items() if shop in ('welive_main','snackersbox')}}
+                      for shop,row in state.get('shops',{}).items() if shop in ('welive_main','snackersbox','konomi_living')}}
     req=urllib.request.Request(url+'/api/summary',data=json.dumps(payload).encode(),
         headers={'User-Agent':'TikTokReviewControl/1.0','Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
     try:

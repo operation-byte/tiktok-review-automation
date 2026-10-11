@@ -32,7 +32,7 @@ The installer reads and verifies Sheet access (without writing), uploads the key
 
 ## Re-login alerts
 
-If TikTok expires a shop session, the daily job stops processing that shop, flags the error in Telegram and preserves the latest encrypted state. **Telegram cannot complete TikTok's 2FA for you**, so the affected login must be refreshed interactively. Use `/tt_login welive_main` or `/tt_login snackersbox` in Telegram to open a temporary private login browser on your phone or computer. Complete login, confirm the correct shop and tap Save login; Telegram confirms when the refreshed encrypted session is saved. A failed/ambiguous submit must be checked in Seller Center before retrying.
+If TikTok expires a shop session, the daily job stops processing that shop, flags the error in Telegram and preserves the latest encrypted state. **Telegram cannot complete TikTok's 2FA for you**, so the affected login must be refreshed interactively. Send `/tt_login` in Telegram and tap the shop button (or type `/tt_login welive_main`, `/tt_login snackersbox` or `/tt_login konomi_living`) to open a temporary private login browser on your phone or computer. Complete login, confirm the correct shop and tap Save login; Telegram confirms when the refreshed encrypted session is saved. A failed/ambiguous submit must be checked in Seller Center before retrying.
 
 ## Safety / running costs
 

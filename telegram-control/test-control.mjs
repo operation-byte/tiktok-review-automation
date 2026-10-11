@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseCommand, authorised, validSession, Control} from './worker.mjs';
+import {parseCommand, parseCallback, authorised, authorisedCallback, validSession, Control} from './worker.mjs';
 test('commands are namespaced and arguments allowlisted',()=>{
  assert.equal(parseCommand('/status'),null);
  assert.deepEqual(parseCommand('/tt_login snackersbox'),{action:'login',shop:'snackersbox'});
@@ -66,4 +66,43 @@ test('session token must match and becomes an HttpOnly cookie',async()=>{
  r=await c.fetch(new Request('https://internal/auth',{method:'POST',body:JSON.stringify({key})}));
  assert.equal(r.status,200);assert.match(r.headers.get('Set-Cookie'),/HttpOnly; Secure; SameSite=Strict/);
  r=await c.fetch(new Request('https://internal/vnc'));assert.equal(r.status,403);
+});
+
+test('bare /tt_login chooses a shop, and parseCallback accepts only known login buttons',()=>{
+ assert.deepEqual(parseCommand('/tt_login'),{action:'login',shop:''});
+ assert.deepEqual(parseCallback('tt_login:snackersbox'),{action:'login',shop:'snackersbox'});
+ assert.equal(parseCallback('tt_login:evil'),null);
+ assert.equal(parseCallback('tt_run:all'),null);
+ assert.equal(parseCallback(undefined),null);
+});
+test('bare /tt_login replies with one button per shop and never dispatches',async()=>{
+ const c=new Control({storage:{get:async()=>undefined,put:async()=>{}}},{OWNER_ID:'42'});
+ let sent;c.say=async(text,extra)=>{sent={text,extra}};c.gh=()=>assert.fail('gh called for shop picker');
+ await c.command(parseCommand('/tt_login'),1);
+ const rows=sent.extra.reply_markup.inline_keyboard;
+ assert.equal(rows.length,3);
+ assert.deepEqual(rows.map(r=>r[0].callback_data),['tt_login:welive_main','tt_login:snackersbox','tt_login:konomi_living']);
+});
+test('owner callback query dispatches login once even if delivered twice',async()=>{
+ const data=new Map();const storage={get:async k=>data.get(k),put:async(k,v)=>data.set(k,v)};
+ const c=new Control({storage},{OWNER_ID:'42'});const calls=[];
+ c.command=async(cmd)=>{calls.push(cmd)};c.say=async()=>{};c.tg=async()=>{};
+ const u={update_id:789,callback_query:{id:'cb1',from:{id:42},message:{message_id:5,chat:{id:42,type:'private'}},data:'tt_login:snackersbox'}};
+ await Promise.all([c.update(u),c.update(u)]);
+ assert.deepEqual(calls,[{action:'login',shop:'snackersbox'}]);
+});
+test('callback query from another user is ignored',async()=>{
+ const c=new Control({storage:{get:async()=>undefined,put:async()=>{}}},{OWNER_ID:'42'});
+ c.command=()=>assert.fail('unauthorised callback command');c.say=()=>assert.fail('unauthorised callback message');c.tg=()=>assert.fail('unauthorised callback telegram call');
+ assert(!authorisedCallback({from:{id:99},message:{chat:{id:99,type:'private'}}},'42'));
+ await c.update({update_id:2,callback_query:{id:'cb2',from:{id:99},message:{message_id:6,chat:{id:99,type:'private'}},data:'tt_login:welive_main'}});
+});
+test('webhook forwards non-tt callback queries untouched',async()=>{
+ const original=globalThis.fetch;let forwarded;
+ globalThis.fetch=async(url,init)=>{forwarded={url,init};return new Response('ok')};
+ const body=JSON.stringify({callback_query:{id:'cb3',from:{id:42},message:{message_id:7,chat:{id:42,type:'private'}},data:'stock:1'}});
+ try{
+ const r=await worker.fetch(new Request('https://test/telegram',{method:'POST',body,headers:{'X-Telegram-Bot-Api-Secret-Token':'secret'}}),{WEBHOOK_SECRET:'secret',OWNER_ID:'42',ORIGINAL_WEBHOOK:'https://old.example',CONTROL:{idFromName:()=>'x',get:()=>({fetch:()=>assert.fail('stock callback reached control')})}});
+ assert.equal(r.status,200);assert.equal(forwarded.url,'https://old.example');assert.equal(forwarded.init.body,body);
+ }finally{globalThis.fetch=original}
 });
