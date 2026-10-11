@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import socket
 import subprocess
 import threading
 import time
@@ -50,7 +51,22 @@ async def relay(stop):
                     await asyncio.gather(*tasks,return_exceptions=True)
                     writer.close();await writer.wait_closed()
         except Exception:
-            if not stop.is_set():await asyncio.sleep(2)
+            if not stop.is_set():await asyncio.sleep(0.5)
+
+
+def wait_until(check,timeout=10):
+    # Poll instead of fixed sleeps so the viewer can attach as soon as the display is up.
+    deadline=time.monotonic()+timeout
+    while time.monotonic()<deadline:
+        if check():return True
+        time.sleep(0.1)
+    return False
+
+
+def vnc_listening():
+    try:
+        with socket.create_connection(('127.0.0.1',5900),timeout=0.2):return True
+    except OSError:return False
 
 
 def verified_login(page):
@@ -76,16 +92,18 @@ def main():
     processes=[];stop=threading.Event();success=False
     try:
         processes.append(subprocess.Popen(['Xvfb',':99','-screen','0','1440x900x24','-nolisten','tcp'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
-        time.sleep(1)
+        wait_until(lambda:Path('/tmp/.X11-unix/X99').exists())
         processes.append(subprocess.Popen(['x11vnc','-display',':99','-localhost','-nopw','-forever','-shared','-rfbport','5900'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
+        wait_until(vnc_listening)
         threading.Thread(target=lambda:asyncio.run(relay(stop)),daemon=True).start()
         with sync_playwright() as p:
             context=launch_profile_context(p.chromium,PROFILES[shop],argparse.Namespace(headless=False,browser_window_state='normal'))
             try:
                 load_cookies_into(context,shop)
                 page=context.pages[0] if context.pages else context.new_page()
-                page.goto(PRODUCT_RATING_BASE_URL+'?shop_region=SG',wait_until='domcontentloaded',timeout=60000)
+                # Announce readiness first; Seller Center keeps loading while the owner opens the link.
                 control('ready')
+                page.goto(PRODUCT_RATING_BASE_URL+'?shop_region=SG',wait_until='domcontentloaded',timeout=60000)
                 deadline=time.monotonic()+14*60
                 while time.monotonic()<deadline:
                     page.wait_for_timeout(2500)

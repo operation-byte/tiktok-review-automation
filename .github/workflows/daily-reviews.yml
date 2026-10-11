@@ -55,7 +55,11 @@ jobs:
       - name: Install Python packages and headless Chromium
         run: |
           python -m pip install -r requirements-github.txt
-          python -m playwright install --with-deps --only-shell chromium
+          # Download the headless shell while apt installs system libraries.
+          python -m playwright install --only-shell chromium &
+          browser=$!
+          python -m playwright install-deps chromium
+          wait "$browser"
       - name: Prepare private Google credentials
         shell: bash
         run: |

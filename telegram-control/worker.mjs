@@ -118,7 +118,9 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
  }
  socket(kind){
   if(this[kind])return reply('A browser connection is already active. Close it first.',409);
-  const pair=new WebSocketPair(),client=pair[0],server=pair[1];server.accept();this[kind]=server;
+  const pair=new WebSocketPair(),client=pair[0],server=pair[1];
+  // Relay raw bytes: newer compatibility dates default binaryType to 'blob', which corrupts VNC frames.
+  server.binaryType='arraybuffer';server.accept();this[kind]=server;
   server.addEventListener('message',e=>{
    const other=kind==='agent'?this.viewer:this.agent;
    if(other){try{other.send(e.data);}catch{this.close();}}

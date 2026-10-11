@@ -11,7 +11,7 @@ function connect(){
  if(rfb){try{rfb.disconnect()}catch{}}
  message(late()?'Still waiting after 3 minutes. The GitHub login browser may not have started. Check Telegram for the browser-ready message; if none arrives, request a new login link.':'Connecting to your secure browser. GitHub may need 1–3 minutes to start…');
  try{
-  rfb=new RFB(document.getElementById('screen'),`wss://${location.host}/vnc/${id}`);
+  rfb=new RFB(document.getElementById('screen'),`${location.protocol==='https:'?'wss':'ws'}://${location.host}/vnc/${id}`);
   rfb.scaleViewport=true;rfb.resizeSession=false;
   rfb.addEventListener('connect',()=>{waiting=false;message('Browser ready. Sign in to TikTok, then open Product Ratings and tap Verify & save login.');});
   rfb.addEventListener('disconnect',()=>{if(waiting){message(late()?'The remote browser has not connected after 3 minutes. Check the GitHub Actions login workflow, then request a fresh link in Telegram.':'Waiting for the remote browser. Reconnecting automatically…');retryTimer=setTimeout(connect,3000);}else message('Browser disconnected. Tap Reconnect browser, or request a new link if the session expired.');});

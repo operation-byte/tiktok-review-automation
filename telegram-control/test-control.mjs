@@ -118,3 +118,9 @@ test('TikTok commands from other users reach neither bot',async()=>{
  const s=await routeTelegram({update_id:5,message:{from:{id:9},chat:{id:9,type:'private'},text:'/tt_run'}});
  assert.equal(s.control,null);assert.equal(s.legacy,null);
 });
+test('relay sockets pass VNC bytes as ArrayBuffers, not Blobs',()=>{
+ const original=globalThis.WebSocketPair;
+ globalThis.WebSocketPair=function(){const mk=()=>({accept(){if(this.binaryType!=='arraybuffer')throw Error('accepted before binaryType set')},addEventListener(){},send(){}});return [mk(),mk()];};
+ try{const c=new Control({storage:{}},{});try{c.socket('agent')}catch(e){if(!(e instanceof RangeError))throw e;}assert.equal(c.agent.binaryType,'arraybuffer');}
+ finally{globalThis.WebSocketPair=original;}
+});
