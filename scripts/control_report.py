@@ -15,7 +15,7 @@ def publish(state):
              'shops':{shop:{k:row.get(k) for k in ('status','login_needed','when')}
                       for shop,row in state.get('shops',{}).items() if shop in ('welive_main','snackersbox')}}
     req=urllib.request.Request(url+'/api/summary',data=json.dumps(payload).encode(),
-        headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
+        headers={'User-Agent':'TikTokReviewControl/1.0','Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
     try:
         with urllib.request.urlopen(req,timeout=15) as r:
             r.read()

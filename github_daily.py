@@ -89,7 +89,7 @@ def main() -> int:
                  "\n".join(problems) + "\nIf login is required, use /tt_login welive_main or /tt_login snackersbox. Use /tt_errors for run links.")
     else:
         labels = {"welive_main": "WELIVE", "snackersbox": "Snacker's Box", "konomi_living": "Konomi Living"}
-        c.notify("✅ Daily TikTok check complete for " + ", ".join(labels[s] for s in c.SHOPS) + ".\n" + c.report())
+        c.notify("✅ Daily TikTok check complete for " + ", ".join(labels[s] for s in c.SHOPS if requested == "all" or s == requested) + ".\n" + c.report())
     return 1 if problems else 0
 
 

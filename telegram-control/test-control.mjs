@@ -38,3 +38,22 @@ test('unknown users cannot reach GitHub or Telegram',async()=>{
  c.command=()=>assert.fail('unauthorised command');c.say=()=>assert.fail('unauthorised message');
  await c.update({update_id:1,message:{from:{id:99},chat:{id:99,type:'private'},text:'/tt_run'}});
 });
+
+import worker from './worker.mjs';
+test('webhook rejects missing secret before any forwarding',async()=>{
+ const r=await worker.fetch(new Request('https://test/telegram',{method:'POST',body:'{}'}),{WEBHOOK_SECRET:'secret'});
+ assert.equal(r.status,403);
+});
+test('stock commands forward untouched to the original receiver',async()=>{
+ const original=globalThis.fetch;let forwarded;
+ globalThis.fetch=async(url,init)=>{forwarded={url,init};return new Response('ok')};
+ const body=JSON.stringify({message:{text:'/stock'}});
+ try{
+ const r=await worker.fetch(new Request('https://test/telegram',{method:'POST',body,headers:{'X-Telegram-Bot-Api-Secret-Token':'secret'}}),{WEBHOOK_SECRET:'secret',ORIGINAL_WEBHOOK:'https://old.example'});
+ assert.equal(r.status,200);assert.equal(forwarded.url,'https://old.example');assert.equal(forwarded.init.body,body);
+ }finally{globalThis.fetch=original}
+});
+test('cross-origin session authentication is rejected',async()=>{
+ const r=await worker.fetch(new Request('https://test/auth/12345678-1234-1234-1234-123456789abc',{method:'POST',headers:{Origin:'https://evil.example'},body:'{}'}),{CONTROL:{idFromName:x=>x,get:()=>({fetch:()=>assert.fail('cross-origin reached session')})}});
+ assert.equal(r.status,403);
+});

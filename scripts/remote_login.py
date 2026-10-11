@@ -18,7 +18,7 @@ SHOPS=('welive_main','snackersbox')
 
 def control(operation):
     url=os.environ['CONTROL_URL'].rstrip('/')+'/api/session/'+os.environ['LOGIN_SESSION']+'/'+operation
-    req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['CONTROL_TOKEN']},
+    req=urllib.request.Request(url,headers={'User-Agent':'TikTokReviewControl/1.0','Authorization':'Bearer '+os.environ['CONTROL_TOKEN']},
                               method='GET' if operation=='poll' else 'POST')
     with urllib.request.urlopen(req,timeout=15) as r:
         body=r.read()
@@ -30,8 +30,8 @@ async def relay(stop):
     url=os.environ['CONTROL_URL'].replace('https://','wss://').rstrip('/')+'/api/session/'+os.environ['LOGIN_SESSION']+'/agent'
     while not stop.is_set():
         try:
-            async with connect(url,additional_headers={'Authorization':'Bearer '+os.environ['CONTROL_TOKEN']},
-                               max_size=2**22,ping_interval=20) as ws:
+            async with connect(url,additional_headers={'User-Agent':'TikTokReviewControl/1.0','Authorization':'Bearer '+os.environ['CONTROL_TOKEN']},
+                               max_size=2**22,ping_interval=20,user_agent_header='TikTokReviewControl/1.0') as ws:
                 reader,writer=await asyncio.open_connection('127.0.0.1',5900)
                 async def upload():
                     while not stop.is_set():
@@ -75,7 +75,7 @@ def main():
     os.environ['DISPLAY']=':99'
     processes=[];stop=threading.Event();success=False
     try:
-        processes.append(subprocess.Popen(['Xvfb',':99','-screen','0','1100x850x24','-nolisten','tcp'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
+        processes.append(subprocess.Popen(['Xvfb',':99','-screen','0','1440x900x24','-nolisten','tcp'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
         time.sleep(1)
         processes.append(subprocess.Popen(['x11vnc','-display',':99','-localhost','-nopw','-forever','-shared','-rfbport','5900'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
         threading.Thread(target=lambda:asyncio.run(relay(stop)),daemon=True).start()
