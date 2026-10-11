@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 
+from scripts.control_report import publish
 from scripts.github_state import GitHubStateStore, StateStoreError
 from scripts.state_vault import pack, unpack
 
@@ -60,7 +61,13 @@ def main() -> int:
     # From here on, always use the original Playwright flow. No TikTok API.
     c.state["paused"] = False
     problems = []
+    requested = os.getenv("REQUESTED_SHOP", "all") or "all"
+    if requested != "all" and requested not in c.SHOPS:
+        c.notify("Unknown or disabled shop requested; check did not start.")
+        return 2
     for shop in c.SHOPS:
+        if requested != "all" and shop != requested:
+            continue
         try:
             if not c.job_mutex.acquire(timeout=5):
                 raise RuntimeError("Could not acquire shop worker lock")
@@ -71,6 +78,7 @@ def main() -> int:
             # Persist refreshed cookies, verified history and job status after EACH
             # shop, even if later shop checks fail.
             store.save(pack(Path(".")))
+            publish(c.state)
         except Exception as exc:
             problems.append(f"{shop}: state persistence or runtime error")
             c.notify(f"🔴 TikTok daily check interrupted at {shop}. Encrypted state save or worker failed; remaining shops skipped. {type(exc).__name__}")
@@ -78,7 +86,7 @@ def main() -> int:
 
     if problems:
         c.notify("⚠️ TikTok daily check finished with attention needed.\n" +
-                 "\n".join(problems) + "\nIf login is required, reauthenticate manually and refresh encrypted GitHub state.")
+                 "\n".join(problems) + "\nIf login is required, use /tt_login welive_main or /tt_login snackersbox. Use /tt_errors for run links.")
     else:
         labels = {"welive_main": "WELIVE", "snackersbox": "Snacker's Box", "konomi_living": "Konomi Living"}
         c.notify("✅ Daily TikTok check complete for " + ", ".join(labels[s] for s in c.SHOPS) + ".\n" + c.report())

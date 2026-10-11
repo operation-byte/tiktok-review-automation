@@ -6,6 +6,12 @@ on:
     - cron: "15 9 * * *"
       timezone: "Asia/Singapore"
   workflow_dispatch:
+    inputs:
+      shop:
+        type: choice
+        options: [all, welive_main, snackersbox]
+        default: all
+        description: Shop to check
 
 permissions:
   contents: write  # only used to store encrypted state in automation-state branch
@@ -19,6 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 95
     env:
+      CONTROL_URL: ${{ vars.CONTROL_URL }}
+      CONTROL_TOKEN: ${{ secrets.CONTROL_TOKEN }}
+      REQUESTED_SHOP: ${{ inputs.shop || 'all' }}
       TZ: Asia/Singapore
       PYTHONUNBUFFERED: "1"
       GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}

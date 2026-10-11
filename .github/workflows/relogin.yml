@@ -1,0 +1,51 @@
+name: Private TikTok relogin browser
+on:
+  workflow_dispatch:
+    inputs:
+      shop:
+        description: Shop to refresh
+        required: true
+        type: choice
+        options: [welive_main, snackersbox]
+      session:
+        description: Private session identifier from Telegram
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: tiktok-daily-review-state
+  cancel-in-progress: false
+jobs:
+  relogin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      TZ: Asia/Singapore
+      DISPLAY: ':99'
+      AUTOMATION_SHOPS: welive_main,snackersbox
+      LOGIN_SHOP: ${{ inputs.shop }}
+      LOGIN_SESSION: ${{ inputs.session }}
+      CONTROL_URL: ${{ vars.CONTROL_URL }}
+      CONTROL_TOKEN: ${{ secrets.CONTROL_TOKEN }}
+      GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_ALLOWED_IDS: ${{ secrets.TELEGRAM_ALLOWED_IDS }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser and private display
+        run: |
+          pip install -r requirements-github.txt websockets==15.0.1
+          python -m playwright install --with-deps chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb x11vnc
+      - name: Open bounded login session
+        run: python -m scripts.remote_login
+      - name: Notify setup failure
+        if: failure()
+        run: python -m scripts.notify_failure
