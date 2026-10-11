@@ -1,0 +1,13 @@
+# Deploy config for the existing tiktok-review-control Worker.
+# Secrets (BOT_TOKEN, GH_TOKEN, CONTROL_TOKEN, WEBHOOK_SECRET) and dashboard vars
+# (OWNER_ID, REPO, PUBLIC_URL, ORIGINAL_WEBHOOK) stay in Cloudflare; keep_vars stops
+# a deploy from wiping them. Build pages.mjs first: npm ci && npm run build.
+name = "tiktok-review-control"
+main = "worker.mjs"
+compatibility_date = "2026-09-01"
+workers_dev = true
+keep_vars = true
+
+[[durable_objects.bindings]]
+name = "CONTROL"
+class_name = "Control"
