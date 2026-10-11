@@ -4,6 +4,7 @@ import {parseCommand, authorised, validSession, Control} from './worker.mjs';
 test('commands are namespaced and arguments allowlisted',()=>{
  assert.equal(parseCommand('/status'),null);
  assert.deepEqual(parseCommand('/tt_login snackersbox'),{action:'login',shop:'snackersbox'});
+ assert.deepEqual(parseCommand('/tt_login konomi_living'),{action:'login',shop:'konomi_living'});
  assert.equal(parseCommand('/tt_login all').error,true);
  assert.equal(parseCommand('/tt_run evil/repo').error,true);
  assert.equal(parseCommand('/tt_run all extra').error,true);
@@ -56,4 +57,13 @@ test('stock commands forward untouched to the original receiver',async()=>{
 test('cross-origin session authentication is rejected',async()=>{
  const r=await worker.fetch(new Request('https://test/auth/12345678-1234-1234-1234-123456789abc',{method:'POST',headers:{Origin:'https://evil.example'},body:'{}'}),{CONTROL:{idFromName:x=>x,get:()=>({fetch:()=>assert.fail('cross-origin reached session')})}});
  assert.equal(r.status,403);
+});
+
+test('session token must match and becomes an HttpOnly cookie',async()=>{
+ const key='private-test-key';const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(key)))).map(x=>x.toString(16).padStart(2,'0')).join('');
+ const c=new Control({storage:{get:async()=>({expires:Date.now()+10000,status:'ready',keyHash:digest})}},{});
+ let r=await c.fetch(new Request('https://internal/auth',{method:'POST',body:JSON.stringify({key:'wrong'})}));assert.equal(r.status,403);
+ r=await c.fetch(new Request('https://internal/auth',{method:'POST',body:JSON.stringify({key})}));
+ assert.equal(r.status,200);assert.match(r.headers.get('Set-Cookie'),/HttpOnly; Secure; SameSite=Strict/);
+ r=await c.fetch(new Request('https://internal/vnc'));assert.equal(r.status,403);
 });

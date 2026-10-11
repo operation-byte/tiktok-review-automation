@@ -2,9 +2,9 @@
 
 ## Current deployment
 
-This deployment selects **WELIVE and Snacker's Box only** (`AUTOMATION_SHOPS=welive_main,snackersbox`); Konomi Living is excluded. It uses the original **rolling 30-day review window**, including the boundary day, with no fixed start date. Already-replied reviews are skipped using TikTok's unreplied queues and the imported reply ledger. The original ZIP's 130 submitted reply records and 129 unique Sheet markers were merged with current cloud state while preserving current logins. Google Sheets uses the original browser writer with authenticated CSV reads from `Backend Data`, `gid=298261214`. Only verified new replies produce Sheet rows, with duplicate detection by review key rather than order ID. Existing older Sheet rows are retained. The daily schedule is 09:15 Singapore time, and Telegram reports results or login issues.
+This deployment selects **WELIVE, Snacker's Box and Konomi Living** (`AUTOMATION_SHOPS=welive_main,snackersbox,konomi_living`); Konomi Living is excluded. It uses the original **rolling 30-day review window**, including the boundary day, with no fixed start date. Already-replied reviews are skipped using TikTok's unreplied queues and the imported reply ledger. The original ZIP's 130 submitted reply records and 129 unique Sheet markers were merged with current cloud state while preserving current logins. Google Sheets uses the original browser writer with authenticated CSV reads from `Backend Data`, `gid=298261214`. Only verified new replies produce Sheet rows, with duplicate detection by review key rather than order ID. Existing older Sheet rows are retained. The daily schedule is 09:15 Singapore time, and Telegram reports results or login issues.
 
-**No credit card, no Oracle VM, no need to leave Windows on.** GitHub Actions runs the **original Python/Playwright** review checks at **09:15 Asia/Singapore** each day. Reviews go into your existing **[TikTok Negative Review KPI](https://docs.google.com/spreadsheets/d/1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs/edit)**, tab `Backend Data`, once its Google service-account permissions are configured. Telegram warns when login is required.
+**No credit card, no Oracle VM, no need to leave Windows on.** GitHub Actions runs the **original Python/Playwright** review checks at **09:15 Asia/Singapore** each day. Reviews go into your existing **[TikTok Negative Review KPI](https://docs.google.com/spreadsheets/d/1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs/edit)**, tab `Backend Data`, using the configured browser writer (no service-account key needed). Telegram warns when login is required.
 
 ## One-time installation (automates GitHub setup)
 
@@ -32,7 +32,7 @@ The installer reads and verifies Sheet access (without writing), uploads the key
 
 ## Re-login alerts
 
-If TikTok expires a shop session, the daily job stops processing that shop, flags the error in Telegram and preserves the latest encrypted state. **Telegram cannot complete TikTok's 2FA for you**, so the affected login must be refreshed interactively. This GitHub free-runner architecture does not provide a persistent remote-browser login. A failed/ambiguous submit must be checked in Seller Center before retrying.
+If TikTok expires a shop session, the daily job stops processing that shop, flags the error in Telegram and preserves the latest encrypted state. **Telegram cannot complete TikTok's 2FA for you**, so the affected login must be refreshed interactively. Use `/tt_login welive_main` or `/tt_login snackersbox` in Telegram to open a temporary private login browser on your phone or computer. Complete login, confirm the correct shop and tap Save login; Telegram confirms when the refreshed encrypted session is saved. A failed/ambiguous submit must be checked in Seller Center before retrying.
 
 ## Safety / running costs
 

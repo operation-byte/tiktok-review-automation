@@ -13,7 +13,7 @@ from scripts.github_state import GitHubStateStore
 from scripts.state_vault import pack, unpack
 from scripts.control_report import publish
 
-SHOPS=('welive_main','snackersbox')
+SHOPS=('welive_main','snackersbox','konomi_living')
 
 
 def control(operation):

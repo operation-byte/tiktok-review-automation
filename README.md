@@ -45,3 +45,49 @@ public reply and each new Google Sheet row.
 Run regression checks with `.venv/bin/python -m pytest tests --ignore=tests/test_cloud_v3.py -q`.
 The legacy `test_cloud_v3.py` currently cannot collect because its `deploy` module
 is absent from this repository.
+
+## Telegram controls and relogin
+
+Send commands privately to `@Welivestockcount_bot` from the configured owner account.
+The existing stock-count commands remain intact; review controls use `/tt_`:
+
+| Command | Action |
+|---|---|
+| `/tt_status` | Current GitHub jobs and last reported shop/login status |
+| `/tt_run` or `/tt_run welive_main` | Live check of both shops or the named shop |
+| `/tt_dryrun` | Diagnose without public replies or Sheet writes |
+| `/tt_pause` | Pause future live review runs; let an active run finish safely |
+| `/tt_resume` | Restore daily 09:15 SGT runs; does not immediately post |
+| `/tt_login welive_main` | Private WELIVE login browser link |
+| `/tt_login snackersbox` | Private Snacker's Box login browser link |
+| `/tt_login konomi_living` | Private Konomi Living login browser link |
+| `/tt_errors` | Recent failed runs and recovery instructions |
+| `/tt_help` | Command guide |
+
+Login links work on phone or computer. Allow a few minutes for the GitHub browser
+job to start, then open the private link. Tap a field in the remote screen; on
+mobile, use the masked text box and Send button to type into that field. Complete
+TikTok login/OTP directly in the browser, confirm the correct shop, and press
+Save login. The job checks the authenticated Product ratings page before saving
+the refreshed cookie jar into the latest encrypted state. Telegram confirms the
+save. Sessions expire 15 minutes after startup; an incomplete login leaves the
+cloud state untouched. The browser closes at job end.
+
+Login expiry is detected during scheduled/manual checks, not instantaneously.
+A failed daily check sends the affected shop name and relogin command again.
+For ordinary failures, use `/tt_errors` and `/tt_dryrun`, or send the run link to
+Codex. Ambiguous replies require Seller Center inspection; no Telegram command
+clears the duplicate history or blindly retries an uncertain submission.
+
+The `tiktok-review-control` Cloudflare Worker authenticates Telegram's webhook
+secret and the owner's private chat ID. Other messages forward to the original
+`welivebot` Worker, which is not modified. A Durable Object deduplicates commands
+and relays authenticated WebSockets; it does not log remote input or screen data.
+The browser and VNC server exist only in the bounded GitHub relogin job, and VNC
+listens only on loopback. Review and login jobs share the same concurrency lock.
+
+Worker source: `telegram-control/`. Build with `npm ci --ignore-scripts && npm run
+build`, then run `npm test` in that directory. Worker secrets are BOT_TOKEN,
+GH_TOKEN, WEBHOOK_SECRET and CONTROL_TOKEN. Keep these out of source control.
+GitHub uses CONTROL_TOKEN and the CONTROL_URL variable. Local setup recovery data
+is protected under ignored `secrets/telegram-control.private`.

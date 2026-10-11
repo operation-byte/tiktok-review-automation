@@ -86,7 +86,7 @@ def main() -> int:
 
     if problems:
         c.notify("⚠️ TikTok daily check finished with attention needed.\n" +
-                 "\n".join(problems) + "\nIf login is required, use /tt_login welive_main or /tt_login snackersbox. Use /tt_errors for run links.")
+                 "\n".join(problems) + "\nIf login is required, use /tt_login <shop> (welive_main, snackersbox, konomi_living). Use /tt_errors for run links.")
     else:
         labels = {"welive_main": "WELIVE", "snackersbox": "Snacker's Box", "konomi_living": "Konomi Living"}
         c.notify("✅ Daily TikTok check complete for " + ", ".join(labels[s] for s in c.SHOPS if requested == "all" or s == requested) + ".\n" + c.report())

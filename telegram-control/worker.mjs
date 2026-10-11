@@ -1,5 +1,5 @@
 import {viewerHtml, openHtml} from './pages.mjs';
-const SHOPS=['welive_main','snackersbox'];
+const SHOPS=['welive_main','snackersbox','konomi_living'];
 const WORKFLOWS=['daily-reviews.yml','dry-run.yml','relogin.yml'];
 const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'};
 const reply=(text,status=200)=>new Response(text,{status,headers});
@@ -15,7 +15,7 @@ export function parseCommand(text=''){
  return {action,shop};
 }
 export const validSession=(s,now=Date.now())=>!!s && s.expires>now && ['starting','ready'].includes(s.status);
-const HELP='TikTok reviews\n/tt_status — latest run and login status\n/tt_run [shop|all] — live review check\n/tt_dryrun [shop|all] — no posting\n/tt_pause — pause future live runs\n/tt_resume — enable daily runs\n/tt_login welive_main\n/tt_login snackersbox\n/tt_errors — recent failures and recovery\nShop names: welive_main, snackersbox.\nRelogin opens a private browser link on phone or computer. Never send passwords or OTPs in chat.';
+const HELP='TikTok reviews\n/tt_status — latest run and login status\n/tt_run [shop|all] — live review check\n/tt_dryrun [shop|all] — no posting\n/tt_pause — pause future live runs\n/tt_resume — enable daily runs\n/tt_login welive_main\n/tt_login snackersbox\n/tt_login konomi_living\n/tt_errors — recent failures and recovery\nShop names: welive_main, snackersbox, konomi_living.\nRelogin opens a private browser link on phone or computer. Never send passwords or OTPs in chat.';
 export class Control{
  constructor(ctx,env){this.ctx=ctx;this.env=env;this.agent=null;this.viewer=null;this.pending=[];this.busy=false;this.commandQueue=Promise.resolve();}
  async say(text){const r=await fetch(`https://api.telegram.org/bot${this.env.BOT_TOKEN}/sendMessage`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:this.env.OWNER_ID,text,link_preview_options:{is_disabled:true}}),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('Telegram delivery failed');}
@@ -36,7 +36,7 @@ export class Control{
   const {action,shop}=cmd;
   if(action==='help')return this.say(HELP);
   if(['pause','resume'].includes(action)){
-   if(shop!=='all')return this.say('Pause/resume currently applies to both review shops. Use /tt_pause or /tt_resume.');
+   if(shop!=='all')return this.say('Pause/resume currently applies to all review shops. Use /tt_pause or /tt_resume.');
    await this.gh('/actions/variables/AUTOMATION_ENABLED','PATCH',{name:'AUTOMATION_ENABLED',value:action==='resume'?'true':'false'});
    return this.say(action==='pause'?'Future live review runs paused. An already-running shop is allowed to finish and save its history.':'Daily reviews enabled for 09:15 Singapore time. Use /tt_run for a check now.');
   }
@@ -65,7 +65,7 @@ export class Control{
    link=`${this.env.PUBLIC_URL}/open/${inputs.session}#${key}`;
   }
   await this.gh(`/actions/workflows/${workflow}/dispatches`,'POST',{ref:'main',inputs});
-  await this.say(action==='login'?`Starting a private login browser for ${shop}. Allow a few minutes for startup. Open this link on phone or computer:\n${link}\nThe browser is available for 15 minutes after startup. Select the correct shop, then use “Save login” in the viewer. Do not forward this link.`:`Requested ${action==='run'?'live':'dry'} check for ${shop}. Results will arrive here. Use /tt_status for progress.`);
+  await this.say(action==='login'?`Login requested for ${shop}. Tap your private link below; it will show a waiting screen until the browser is ready:\n${link}\nSign into TikTok in the browser screen and tap Verify & save login. Do not forward this link or share passwords in chat.`:`Requested ${action==='run'?'live':'dry'} check for ${shop}. Results will arrive here. Use /tt_status for progress.`);
  }
  async alarm(){this.close();await this.ctx.storage.deleteAll();}
  close(){const sockets=[this.agent,this.viewer];this.agent=this.viewer=null;this.pending=[];for(const ws of sockets){try{ws?.close(1000,'Session ended');}catch{}}}
@@ -82,7 +82,7 @@ export class Control{
   }
   if(path==='/ready'){
    s.status='ready';s.expires=Math.min(s.expires,Date.now()+15*60000);await this.ctx.storage.put('session',s);await this.ctx.storage.setAlarm(s.expires);
-   await this.say(`Private login browser ready for ${s.shop}. Open the link above. After logging into the correct shop, press Save login. Link expires in 15 minutes.`);return reply('ok');
+   await this.say(`Login browser ready for ${s.shop}. Open your private link above and finish TikTok verification. Tap Verify & save login when Seller Center Product Ratings appears. You have 15 minutes.`);return reply('ok');
   }
   if(path==='/finish'){
    s.status='complete';await this.ctx.storage.put('session',s);this.close();return reply('ok');
