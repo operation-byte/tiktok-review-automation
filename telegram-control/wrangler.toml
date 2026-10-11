@@ -1,13 +1,32 @@
-# Deploy config for the existing tiktok-review-control Worker.
-# Secrets (BOT_TOKEN, GH_TOKEN, CONTROL_TOKEN, WEBHOOK_SECRET) and dashboard vars
-# (OWNER_ID, REPO, PUBLIC_URL, ORIGINAL_WEBHOOK) stay in Cloudflare; keep_vars stops
-# a deploy from wiping them. Build pages.mjs first: npm ci && npm run build.
+# Deploy config for the existing tiktok-review-control Worker; mirrors the live
+# bindings so a deploy changes code only. Secrets (BOT_TOKEN, GH_TOKEN, CONTROL_TOKEN,
+# WEBHOOK_SECRET) and dashboard vars (OWNER_ID, REPO, PUBLIC_URL, ORIGINAL_WEBHOOK)
+# stay in Cloudflare; keep_vars stops a deploy from wiping them.
+# Build pages.mjs first: npm ci && npm run build && npm test
 name = "tiktok-review-control"
 main = "worker.mjs"
-compatibility_date = "2026-09-01"
+compatibility_date = "2026-10-01"
 workers_dev = true
+preview_urls = false
 keep_vars = true
+
+# Every 5 minutes: re-points the Telegram webhook here if anything else replaced it.
+[triggers]
+crons = ["*/5 * * * *"]
 
 [[durable_objects.bindings]]
 name = "CONTROL"
 class_name = "Control"
+
+[exports.Control]
+type = "durable-object"
+storage = "sqlite"
+
+[[kv_namespaces]]
+binding = "WEBHOOK_AUDIT"
+id = "192bee4a75454d4ba5b0c11b5591f884"
+
+# Non-TikTok updates are forwarded to the stock bot through this service binding.
+[[services]]
+binding = "LEGACY_BOT"
+service = "welivebot"

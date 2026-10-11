@@ -4,15 +4,17 @@ const id=location.pathname.split('/').pop();
 let rfb, retryTimer, waiting=true;
 const status=document.getElementById('status');
 function message(txt){status.textContent=txt;}
+const viewerStart=Date.now();
+const late=()=>Date.now()-viewerStart>180000;
 function connect(){
  clearTimeout(retryTimer);
  if(rfb){try{rfb.disconnect()}catch{}}
- message('Connecting to your secure browser. It may take a few minutes to start…');
+ message(late()?'Still waiting after 3 minutes. The GitHub login browser may not have started. Check Telegram for the browser-ready message; if none arrives, request a new login link.':'Connecting to your secure browser. GitHub may need 1–3 minutes to start…');
  try{
-  rfb=new RFB(document.getElementById('screen'),`${location.origin.replace('https:','wss:')}/vnc/${id}`);
+  rfb=new RFB(document.getElementById('screen'),`wss://${location.host}/vnc/${id}`);
   rfb.scaleViewport=true;rfb.resizeSession=false;
   rfb.addEventListener('connect',()=>{waiting=false;message('Browser ready. Sign in to TikTok, then open Product Ratings and tap Verify & save login.');});
-  rfb.addEventListener('disconnect',()=>{if(waiting){message('Browser starting. Reconnecting automatically…');retryTimer=setTimeout(connect,3000);}else message('Browser disconnected. Tap Reconnect browser, or request a new link if the session expired.');});
+  rfb.addEventListener('disconnect',()=>{if(waiting){message(late()?'The remote browser has not connected after 3 minutes. Check the GitHub Actions login workflow, then request a fresh link in Telegram.':'Waiting for the remote browser. Reconnecting automatically…');retryTimer=setTimeout(connect,3000);}else message('Browser disconnected. Tap Reconnect browser, or request a new link if the session expired.');});
   rfb.addEventListener('securityfailure',()=>{waiting=false;message('Connection rejected. Request a new private link in Telegram.');});
  }catch{retryTimer=setTimeout(connect,3000)}
 }

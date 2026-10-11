@@ -45,15 +45,6 @@ test('webhook rejects missing secret before any forwarding',async()=>{
  const r=await worker.fetch(new Request('https://test/telegram',{method:'POST',body:'{}'}),{WEBHOOK_SECRET:'secret'});
  assert.equal(r.status,403);
 });
-test('stock commands forward untouched to the original receiver',async()=>{
- const original=globalThis.fetch;let forwarded;
- globalThis.fetch=async(url,init)=>{forwarded={url,init};return new Response('ok')};
- const body=JSON.stringify({message:{text:'/stock'}});
- try{
- const r=await worker.fetch(new Request('https://test/telegram',{method:'POST',body,headers:{'X-Telegram-Bot-Api-Secret-Token':'secret'}}),{WEBHOOK_SECRET:'secret',ORIGINAL_WEBHOOK:'https://old.example'});
- assert.equal(r.status,200);assert.equal(forwarded.url,'https://old.example');assert.equal(forwarded.init.body,body);
- }finally{globalThis.fetch=original}
-});
 test('cross-origin session authentication is rejected',async()=>{
  const r=await worker.fetch(new Request('https://test/auth/12345678-1234-1234-1234-123456789abc',{method:'POST',headers:{Origin:'https://evil.example'},body:'{}'}),{CONTROL:{idFromName:x=>x,get:()=>({fetch:()=>assert.fail('cross-origin reached session')})}});
  assert.equal(r.status,403);
@@ -97,12 +88,33 @@ test('callback query from another user is ignored',async()=>{
  assert(!authorisedCallback({from:{id:99},message:{chat:{id:99,type:'private'}}},'42'));
  await c.update({update_id:2,callback_query:{id:'cb2',from:{id:99},message:{message_id:6,chat:{id:99,type:'private'}},data:'tt_login:welive_main'}});
 });
-test('webhook forwards non-tt callback queries untouched',async()=>{
- const original=globalThis.fetch;let forwarded;
- globalThis.fetch=async(url,init)=>{forwarded={url,init};return new Response('ok')};
- const body=JSON.stringify({callback_query:{id:'cb3',from:{id:42},message:{message_id:7,chat:{id:42,type:'private'}},data:'stock:1'}});
- try{
- const r=await worker.fetch(new Request('https://test/telegram',{method:'POST',body,headers:{'X-Telegram-Bot-Api-Secret-Token':'secret'}}),{WEBHOOK_SECRET:'secret',OWNER_ID:'42',ORIGINAL_WEBHOOK:'https://old.example',CONTROL:{idFromName:()=>'x',get:()=>({fetch:()=>assert.fail('stock callback reached control')})}});
- assert.equal(r.status,200);assert.equal(forwarded.url,'https://old.example');assert.equal(forwarded.init.body,body);
- }finally{globalThis.fetch=original}
+// Coexistence with the stock bot: only /tt_* commands and tt_login:* buttons stay here.
+const routeTelegram=async(update,owner='42')=>{
+ const seen={legacy:null,control:null};const waits=[];
+ const env={WEBHOOK_SECRET:'secret',OWNER_ID:owner,WEBHOOK_AUDIT:{put:async()=>{}},
+  LEGACY_BOT:{fetch:async req=>{seen.legacy=await req.text();return new Response('ok')}},
+  CONTROL:{idFromName:x=>x,get:()=>({fetch:async(_u,init)=>{seen.control=init.body;return new Response('ok')}})}};
+ const body=JSON.stringify(update);
+ const r=await worker.fetch(new Request('https://test/telegram',{method:'POST',body,headers:{'X-Telegram-Bot-Api-Secret-Token':'secret'}}),env,{waitUntil:p=>waits.push(p)});
+ await Promise.all(waits);assert.equal(r.status,200);return {...seen,body};
+};
+const owner={from:{id:42},chat:{id:42,type:'private'}};
+test('stock bot commands and messages forward untouched to the original bot',async()=>{
+ for(const text of ['/stock','/start','/tt','hello','/help']){
+  const s=await routeTelegram({update_id:1,message:{...owner,text}});
+  assert.equal(s.legacy,s.body);assert.equal(s.control,null);
+ }
+});
+test('stock bot buttons forward untouched',async()=>{
+ const s=await routeTelegram({update_id:2,callback_query:{id:'c',from:{id:42},message:{message_id:7,chat:{id:42,type:'private'}},data:'stock:1'}});
+ assert.equal(s.legacy,s.body);assert.equal(s.control,null);
+});
+test('TikTok commands and login buttons stay with the TikTok control',async()=>{
+ for(const update of [{update_id:3,message:{...owner,text:'/tt_login'}},{update_id:4,callback_query:{id:'c',from:{id:42},message:{message_id:7,chat:{id:42,type:'private'}},data:'tt_login:konomi_living'}}]){
+  const s=await routeTelegram(update);assert.equal(s.control,s.body);assert.equal(s.legacy,null);
+ }
+});
+test('TikTok commands from other users reach neither bot',async()=>{
+ const s=await routeTelegram({update_id:5,message:{from:{id:9},chat:{id:9,type:'private'},text:'/tt_run'}});
+ assert.equal(s.control,null);assert.equal(s.legacy,null);
 });
