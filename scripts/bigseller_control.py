@@ -19,7 +19,7 @@ def publish(status, **details):
     if not url or not key:
         return
     req = urllib.request.Request(url + '/api/summary', data=json.dumps(payload).encode(), method='POST',
-                                 headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+                                 headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'User-Agent': 'BigSellerControl/1.0'})
     try:
         with urllib.request.urlopen(req, timeout=15) as response:
             response.read()

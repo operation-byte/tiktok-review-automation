@@ -197,6 +197,7 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print('BigSeller sync failed: ' + type(exc).__name__)
+        detail = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__
+        print('BigSeller sync failed: ' + detail)
         publish('sync failed')
         raise SystemExit(1)
