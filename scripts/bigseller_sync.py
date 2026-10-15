@@ -91,7 +91,11 @@ def validate_export(path):
         from openpyxl import load_workbook
         workbook = load_workbook(path, read_only=True, data_only=True)
         try:
-            return validate_rows(workbook.worksheets[0].iter_rows(values_only=True))
+            sheet = workbook.worksheets[0]
+            # BigSeller's generated XLSX may declare only column A in its
+            # dimension metadata even though the sheet contains many columns.
+            sheet.reset_dimensions()
+            return validate_rows(sheet.iter_rows(values_only=True))
         finally:
             workbook.close()
     if path.suffix.lower() == '.xls':

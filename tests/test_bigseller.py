@@ -49,6 +49,25 @@ def test_excel_inventory_uses_available_stock_and_rejects_blank_formula_cache(tm
         validate_export(path)
 
 
+def test_excel_export_with_incorrect_single_column_dimensions_reads_all_headers(tmp_path):
+    from openpyxl import Workbook
+    import zipfile
+    import re
+    workbook = Workbook()
+    workbook.active.append(['Image URL'] + HEADERS)
+    workbook.active.append(['https://example.com/product.jpg', 'Single juice', 10, 'Single SKU'])
+    source = tmp_path / 'source.xlsx'
+    workbook.save(source)
+    malformed = tmp_path / 'inventory.xlsx'
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(malformed, 'w') as changed:
+        for name in original.namelist():
+            data = original.read(name)
+            if name == 'xl/worksheets/sheet1.xml':
+                data = re.sub(b'<dimension ref="[^"]+"', b'<dimension ref="A1:A2"', data)
+            changed.writestr(name, data)
+    assert validate_export(malformed) == 1
+
+
 def test_bigseller_state_is_encrypted_and_uses_a_separate_branch(monkeypatch, tmp_path):
     monkeypatch.setenv('STATE_ENCRYPTION_KEY', Fernet.generate_key().decode())
     monkeypatch.setenv('GITHUB_SHA', 'a' * 40)
