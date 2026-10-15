@@ -1,6 +1,7 @@
 import {viewerHtml, openHtml} from './pages.mjs';
 const SHOPS=['welive_main','snackersbox','konomi_living'];
 const WORKFLOWS=['daily-reviews.yml','dry-run.yml','relogin.yml'];
+const BIGSELLER_WORKFLOWS=['bigseller-sync.yml','bigseller-login.yml'];
 const LABELS={welive_main:'WELIVE',snackersbox:"Snacker's Box",konomi_living:'Konomi Living'};
 const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'};
 const reply=(text,status=200)=>new Response(text,{status,headers});
@@ -18,11 +19,20 @@ export function parseCommand(text=''){
  return {action,shop};
 }
 export function parseCallback(data=''){const shop=typeof data==='string'&&data.startsWith('tt_login:')?data.slice(9):'';return SHOPS.includes(shop)?{action:'login',shop}:null;}
+export function parseBigSellerCommand(text=''){
+ const parts=text.trim().toLowerCase().split(/\s+/),name=parts[0].split('@')[0];
+ if(!name.startsWith('/bs_'))return null;
+ const action=name.slice(4);
+ return parts.length===1&&['help','status','errors','login','run','dryrun','pause','resume'].includes(action)?{action,service:'bigseller'}:{error:true,service:'bigseller'};
+}
+const parseControlCommand=text=>parseBigSellerCommand(text)||parseCommand(text);
 export function authorisedCallback(cq,owner){return String(cq?.from?.id)===owner && cq?.message?.chat?.type==='private' && String(cq.message.chat.id)===owner;}
 // TikTok traffic is only /tt_* commands and tt_login:* buttons; everything else belongs to the stock bot.
 export const isTikTokUpdate=u=>!!(parseCommand(u?.message?.text)||parseCallback(u?.callback_query?.data));
+export const isControlUpdate=u=>isTikTokUpdate(u)||!!parseBigSellerCommand(u?.message?.text);
 export const validSession=(s,now=Date.now())=>!!s && s.expires>now && ['starting','ready'].includes(s.status);
 const HELP='TikTok reviews\n/tt_status — latest run and login status\n/tt_run [shop|all] — live review check\n/tt_dryrun [shop|all] — no posting\n/tt_pause — pause future live runs\n/tt_resume — enable daily runs\n/tt_login — tap a shop button to log in\n/tt_errors — recent failures and recovery\nShop names: welive_main, snackersbox, konomi_living.\nRelogin opens a private browser link on phone or computer. Never send passwords or OTPs in chat.';
+const BS_HELP='BigSeller stock sync\n/bs_login — private BigSeller login browser\n/bs_run — export Single SKU inventory and update dashboard stock\n/bs_dryrun — download and validate export without updating stock\n/bs_status — latest login, stock import and job status\n/bs_pause — pause scheduled syncs\n/bs_resume — enable scheduled syncs\n/bs_errors — recent failed jobs\nUse Warehouse in the main dashboard for the same controls. Never send passwords or OTPs in chat.';
 export class Control{
  constructor(ctx,env){this.ctx=ctx;this.env=env;this.agent=null;this.viewer=null;this.pending=[];this.busy=false;this.commandQueue=Promise.resolve();}
  async tg(method,body){const r=await fetch(`https://api.telegram.org/bot${this.env.BOT_TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('Telegram delivery failed');return r;}
@@ -45,11 +55,44 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
     if(!cmd)return;
     await this.tg('editMessageReplyMarkup',{chat_id:cb.message.chat.id,message_id:cb.message.message_id,reply_markup:{inline_keyboard:[]}}).catch(()=>{});
     await this.command(cmd,u.update_id);
-   }else await this.command(parseCommand(u.message.text),u.update_id);
-  }catch(e){await this.say(`TikTok command could not complete (${String(e.message).slice(0,80)}). Use /tt_status before retrying; a request may already have started.`);}finally{this.busy=false;}
+   }else await this.command(parseControlCommand(u.message.text),u.update_id);
+  }catch(e){const bs=!!parseBigSellerCommand(u.message?.text);await this.say(`${bs?'BigSeller':'TikTok'} command could not complete (${String(e.message).slice(0,80)}). Use ${bs?'/bs_status':'/tt_status'} before retrying; a request may already have started.`);}finally{this.busy=false;}
  }
- async runs(){return (await this.gh('/actions/runs?per_page=30')).workflow_runs.filter(r=>WORKFLOWS.some(w=>r.path===`.github/workflows/${w}`));}
+ async runs(workflows=WORKFLOWS){return (await this.gh('/actions/runs?per_page=50')).workflow_runs.filter(r=>workflows.some(w=>r.path===`.github/workflows/${w}`));}
+ async bigSellerEnabled(){try{return (await this.gh('/actions/variables/BIGSELLER_AUTOMATION_ENABLED')).value==='true';}catch(e){if(e.message==='GitHub 404')return false;throw e;}}
+ async bigSellerAction(action){
+  if(!['help','status','errors','login','run','dryrun','pause','resume'].includes(action))return {ok:false,message:'Unknown BigSeller action. Use /bs_help.'};
+  if(action==='help')return {ok:true,message:BS_HELP};
+  if(action==='pause'||action==='resume'){
+   const variable={name:'BIGSELLER_AUTOMATION_ENABLED',value:action==='resume'?'true':'false'};
+   try{await this.gh('/actions/variables/BIGSELLER_AUTOMATION_ENABLED','PATCH',variable);}catch(e){if(e.message!=='GitHub 404')throw e;await this.gh('/actions/variables','POST',variable);}
+   return {ok:true,message:action==='pause'?'Scheduled BigSeller stock syncs paused. An active sync can finish.':'BigSeller scheduled stock syncs enabled. Use Run sync or /bs_run for an update now.'};
+  }
+  const runs=await this.runs(BIGSELLER_WORKFLOWS);
+  if(action==='status'||action==='errors'){
+   const summary=await this.ctx.storage.get('bigsellerSummary')||{};
+   const selected=(action==='errors'?runs.filter(r=>r.conclusion&&r.conclusion!=='success'):runs).slice(0,3);
+   const enabled=await this.bigSellerEnabled();
+   return {ok:true,status:{...summary,enabled,runs:selected.map(r=>({status:r.conclusion||r.status,url:r.html_url}))},message:`BigSeller scheduled sync: ${enabled?'enabled':'paused'}\nLast report: ${summary.status||'No report yet'}${summary.when?' · '+summary.when:''}${summary.rows!==undefined?'\nImported SKU rows: '+summary.rows:''}${summary.lastImportAt?'\nLast stock update: '+summary.lastImportAt:''}\n`+selected.map(r=>`${r.name}: ${r.conclusion||r.status}\n${r.html_url}`).join('\n')};
+  }
+  const active=runs.find(r=>!r.conclusion);
+  if(active)return {ok:false,message:'A BigSeller login/sync job is already active.\n'+active.html_url};
+  if(action==='run'&&!await this.bigSellerEnabled())return {ok:false,message:'BigSeller sync is paused. Use /bs_resume or Resume in Warehouse first.'};
+  const recent=await this.ctx.storage.get('bigsellerLastDispatch')||0;
+  if(Date.now()-recent<60000)return {ok:false,message:'A BigSeller job was just requested. Wait one minute, then refresh status.'};
+  const inputs={};let workflow='bigseller-sync.yml',loginUrl='';
+  if(action==='login'){
+   workflow='bigseller-login.yml';inputs.session=crypto.randomUUID();const key=token();
+   const stub=this.env.CONTROL.get(this.env.CONTROL.idFromName('session:'+inputs.session));
+   await stub.fetch('https://internal/create',{method:'POST',body:JSON.stringify({shop:'bigseller',service:'bigseller',keyHash:await hash(key),expires:Date.now()+35*60000,status:'starting'})});
+   loginUrl=`${this.env.PUBLIC_URL}/open/${inputs.session}?service=bigseller#${key}`;
+  }else inputs.dry_run=action==='dryrun'?'true':'false';
+  await this.ctx.storage.put('bigsellerLastDispatch',Date.now());
+  try{await this.gh(`/actions/workflows/${workflow}/dispatches`,'POST',{ref:'main',inputs});}catch(e){await this.ctx.storage.delete('bigsellerLastDispatch');throw e;}
+  return {ok:true,...(loginUrl?{loginUrl}:{}),message:action==='login'?`Starting your private BigSeller login browser. Allow a few minutes for startup.\n${loginUrl}\nLog in, open Inventory List, then press Save login. The browser closes after 15 minutes. Do not share this link.`:action==='dryrun'?'BigSeller export check requested. Stock data will stay unchanged.':'BigSeller sync requested. Stock update is confirmed only after the main dashboard importer and Procurement refresh complete.'};
+ }
  async command(cmd,updateId){
+  if(cmd?.service==='bigseller'){const result=await this.bigSellerAction(cmd.error?'invalid':cmd.action);return this.say(result.message);}
   if(cmd?.error)return this.say('That TikTok command was not recognised. Send /tt_login to pick a shop with buttons, or /tt_help for all commands.');
   if(!cmd)return this.say(HELP);
   const {action,shop}=cmd;
@@ -93,9 +136,14 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
   const url=new URL(request.url),path=url.pathname;
   if(path==='/command'){try{await this.env.WEBHOOK_AUDIT.put('last_do_command',JSON.stringify({at:new Date().toISOString(),received:true}))}catch{}await this.update(await request.json());return reply('ok');}
   if(path==='/webhook-state'){if(request.method==='POST'){await this.ctx.storage.put('webhookAudit',await request.json());return reply('ok');}return json(await this.ctx.storage.get('webhookAudit')||{});}
- if(path==='/summary'){await this.ctx.storage.put('summary',await request.json());return reply('ok');}
+ if(path==='/bigseller/action'){
+  // Dashboard and Telegram actions share one queue and dispatch cooldown.
+  const {action}=await request.json();const task=this.commandQueue.then(()=>this.bigSellerAction(action));this.commandQueue=task.catch(()=>{});
+  return json(await task);
+ }
+ if(path==='/summary'){const summary=await request.json();const key=summary.service==='bigseller'?'bigsellerSummary':'summary';const previous=await this.ctx.storage.get(key)||{};await this.ctx.storage.put(key,key==='bigsellerSummary'?{...previous,...summary}:summary);return reply('ok');}
   if(path==='/create'){const s=await request.json();await this.ctx.storage.put('session',s);await this.ctx.storage.setAlarm(s.expires);return reply('ok');}
-  const s=await this.ctx.storage.get('session');if(!validSession(s))return reply('Login session expired or finished. Request /tt_login again.',410);
+  const s=await this.ctx.storage.get('session');if(!validSession(s))return reply('Login session expired or finished. Request a new login from the dashboard or Telegram.',410);
   if(path==='/auth'){try{await this.env.WEBHOOK_AUDIT.put('last_browser_auth',JSON.stringify({at:new Date().toISOString(),shop:s.shop}))}catch{};
    const key=(await request.json()).key;
    if(typeof key!=='string'||key.length>100||await hash(key)!==s.keyHash)return reply('Forbidden',403);
@@ -108,7 +156,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
   if(path==='/finish'){
    s.status='complete';await this.ctx.storage.put('session',s);this.close();return reply('ok');
   }
-  if(path==='/poll'){const save=await this.ctx.storage.get('saveRequested')||false;await this.ctx.storage.delete('saveRequested');return json({save,shop:s.shop,expires:s.expires});}
+  if(path==='/poll'){const save=await this.ctx.storage.get('saveRequested')||false;await this.ctx.storage.delete('saveRequested');return json({save,shop:s.shop,service:s.service||'tiktok',expires:s.expires});}
   if(path==='/agent'){try{await this.env.WEBHOOK_AUDIT.put('last_agent_connection',JSON.stringify({at:new Date().toISOString(),shop:s.shop}))}catch{};return this.socket('agent');}
   const cookie=request.headers.get('cookie')?.match(/(?:^|;\s*)tt_session=([^;]+)/)?.[1]||'';
   if(!cookie||await hash(cookie)!==s.keyHash)return reply('Open your private link from Telegram first.',403);
@@ -183,7 +231,7 @@ export default {async scheduled(_event,env,_ctx){
   const body=await request.text();if(body.length>100000)return reply('Too large',413);
   let u;try{u=JSON.parse(body);}catch{return reply('Bad JSON',400);}
   try{await env.WEBHOOK_AUDIT.put('last_parsed_message',JSON.stringify({at:new Date().toISOString(),isCommand:isTikTokUpdate(u),command:parseCommand(u.message?.text)?.action||(parseCallback(u.callback_query?.data)?'button':null),ownerOk:authorised(u.message,env.OWNER_ID)||authorisedCallback(u.callback_query,env.OWNER_ID)}))}catch(e){console.warn('Audit parsed failed')}
-  if(isTikTokUpdate(u)){
+  if(isControlUpdate(u)){
     if(!(u.callback_query?authorisedCallback(u.callback_query,env.OWNER_ID):authorised(u.message,env.OWNER_ID)))return reply('ok');
     ctx.waitUntil((async()=>{
       try{
@@ -192,7 +240,7 @@ export default {async scheduled(_event,env,_ctx){
         if(!result.ok)throw Error('Control service HTTP '+result.status);
       }catch(e){
         try{await env.WEBHOOK_AUDIT.put('last_command_dispatch',JSON.stringify({at:new Date().toISOString(),ok:false,error:String(e?.message||e).slice(0,160)}))}catch{}
-        try{await fetch('https://api.telegram.org/bot'+env.BOT_TOKEN+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:env.OWNER_ID,text:'TikTok command could not be handled. Try /tt_help or retry shortly.'}),signal:AbortSignal.timeout(8000)})}catch{}
+        try{await fetch('https://api.telegram.org/bot'+env.BOT_TOKEN+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:env.OWNER_ID,text:'Automation command could not be handled. Try /tt_help or /bs_help, or retry shortly.'}),signal:AbortSignal.timeout(8000)})}catch{}
       }
     })());
     return reply('ok');
@@ -200,13 +248,19 @@ export default {async scheduled(_event,env,_ctx){
   ctx.waitUntil((async()=>{
     let status=0,error='';
     try{
-      const forwarded=await env.LEGACY_BOT.fetch(new Request('https://welivebot.internal/',{method:'POST',headers:{'Content-Type':'application/json'},body}));
+      const forwarded=await env.LEGACY_BOT.fetch(new Request('https://welivebot.internal/',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':env.LEGACY_WEBHOOK_SECRET||env.WEBHOOK_SECRET},body}));
       status=forwarded.status;
       if(!forwarded.ok)error='Original Worker returned HTTP '+forwarded.status;
     }catch(e){error=String(e?.message||e).slice(0,160)}
     try{await env.WEBHOOK_AUDIT.put('last_forward_result',JSON.stringify({at:new Date().toISOString(),method:'service-binding',status,ok:status>=200&&status<300,error}))}catch{}
   })());
   return reply('ok');
+ }
+ if(p==='/api/bigseller/action'&&request.method==='POST'){
+  if(!env.BIGSELLER_DASHBOARD_TOKEN||request.headers.get('Authorization')!==`Bearer ${env.BIGSELLER_DASHBOARD_TOKEN}`)return reply('Forbidden',403);
+  const body=await request.text();if(body.length>1000)return reply('Too large',413);
+  try{const data=JSON.parse(body);if(typeof data.action!=='string')return reply('Bad request',400);}catch{return reply('Bad JSON',400);}
+  try{return await control().fetch('https://internal/bigseller/action',{method:'POST',body});}catch{return new Response(JSON.stringify({ok:false,message:'BigSeller control could not complete. Check status before retrying.'}),{status:502,headers:{...headers,'Content-Type':'application/json'}});}
  }
  if(p==='/api/summary'&&request.method==='POST'){
   if(request.headers.get('Authorization')!==`Bearer ${env.CONTROL_TOKEN}`)return reply('Forbidden',403);

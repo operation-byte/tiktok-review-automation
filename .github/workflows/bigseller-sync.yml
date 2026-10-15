@@ -1,0 +1,62 @@
+name: BigSeller inventory and dashboard stock sync
+on:
+  schedule:
+    - cron: '0 0,6,12,18 * * *'
+      timezone: Asia/Singapore
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Export and validate without changing dashboard stock
+        type: boolean
+        default: true
+permissions:
+  contents: write
+concurrency:
+  group: bigseller-browser-state
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.event_name == 'workflow_dispatch' || vars.BIGSELLER_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TZ: Asia/Singapore
+      CONTROL_URL: ${{ vars.CONTROL_URL }}
+      CONTROL_TOKEN: ${{ secrets.CONTROL_TOKEN }}
+      GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+      BIGSELLER_STATE_ENCRYPTION_KEY: ${{ secrets.BIGSELLER_STATE_ENCRYPTION_KEY }}
+      BIGSELLER_AUTOMATION_ENABLED: ${{ vars.BIGSELLER_AUTOMATION_ENABLED }}
+      BIGSELLER_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+      BIGSELLER_IMPORT_URL: ${{ vars.BIGSELLER_IMPORT_URL }}
+      BIGSELLER_IMPORT_SECRET: ${{ secrets.BIGSELLER_IMPORT_SECRET }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_ALLOWED_IDS: ${{ secrets.TELEGRAM_ALLOWED_IDS }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements-github.txt
+            requirements-relogin.txt
+            requirements-bigseller.txt
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: integrations/bigseller-export/package-lock.json
+      - name: Install exporter and validation dependencies
+        run: |
+          python -m pip install -r requirements-bigseller.txt
+          npm ci --ignore-scripts --prefix integrations/bigseller-export
+          integrations/bigseller-export/node_modules/.bin/playwright install --with-deps chromium
+      - name: Export and confirm stock import
+        run: python -m scripts.bigseller_sync
+      - name: Report incomplete run
+        if: failure() || cancelled()
+        env:
+          FAILURE_CONTEXT: bigseller
+        run: python -m scripts.notify_failure

@@ -26,7 +26,9 @@ storage = "sqlite"
 binding = "WEBHOOK_AUDIT"
 id = "192bee4a75454d4ba5b0c11b5591f884"
 
-# Non-TikTok updates are forwarded to the stock bot through this service binding.
+# /tt_* and /bs_* stay here. Other updates go to the existing Apps Script proxy.
+# BIGSELLER_DASHBOARD_TOKEN authenticates Main Dashboard control requests.
+# LEGACY_WEBHOOK_SECRET, when set, must match the proxy's downstream webhook key.
 [[services]]
 binding = "LEGACY_BOT"
 service = "welivebot"

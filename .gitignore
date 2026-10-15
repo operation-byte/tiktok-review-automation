@@ -21,3 +21,10 @@ __pycache__/
 
 /telegram-control/node_modules/
 /telegram-control/pages.mjs
+
+# BigSeller runner state, browser diagnostics and dependencies stay on the
+# ephemeral runner or the local Windows fallback; only source is versioned.
+/integrations/bigseller-export/node_modules/
+/integrations/bigseller-export/runtime/
+/integrations/bigseller-export/*.enc
+/integrations/bigseller-export/*.private

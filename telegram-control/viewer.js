@@ -1,6 +1,10 @@
 import RFBModule from '@novnc/novnc/lib/rfb.js';
 const RFB=RFBModule.default || RFBModule;
 const id=location.pathname.split('/').pop();
+const bigseller=new URLSearchParams(location.search).get('service')==='bigseller';
+const loginCommand=bigseller?'/bs_login':'/tt_login';
+const destination=bigseller?'BigSeller → Inventory List':'TikTok Seller Center → Product Ratings';
+if(bigseller){document.title='BigSeller secure login';document.querySelector('h1').textContent='BigSeller login';document.getElementById('screen').setAttribute('aria-label','Remote BigSeller browser');}
 const $=x=>document.getElementById(x);
 const pill=$('pill'),statusText=$('status'),hint=$('hint'),overlay=$('overlay'),overlayText=$('overlayText'),stage=$('stage');
 const save=$('save'),keyboard=$('keyboard'),reconnect=$('connect'),input=$('type');
@@ -22,18 +26,18 @@ function render(status,help,cover){
  if(state!=='live'){keyboard.setAttribute('aria-pressed','false');input.blur();}
  reconnect.hidden=!(state==='dropped'||(state==='starting'&&Date.now()-viewerStart>60000));
 }
-const LIVE_HINT=touch?'Log in to TikTok, open Seller Center → Product Ratings, then tap Save login. Tap ⌨ to type'+(matchMedia('(orientation: portrait)').matches?'; turn your phone sideways for a bigger screen.':'.'):'Click the screen to type. Log in to TikTok, open Seller Center → Product Ratings, then click Save login.';
+const LIVE_HINT=touch?'Log in and open '+destination+', then tap Save login. Tap ⌨ to type'+(matchMedia('(orientation: portrait)').matches?'; turn your phone sideways for a bigger screen.':'.'):'Click the screen to type. Open '+destination+', then click Save login.';
 function renderStarting(){
  const late=Date.now()-viewerStart>180000;
- render('Starting…',late?'Still starting after 3 minutes. If Telegram has no “browser ready” message, send /tt_login for a new link.':'Starting the remote browser. This usually takes under a minute.',late?'Still waiting for the browser…':'Starting the browser…');
+ render('Starting…',late?'Still starting after 3 minutes. If Telegram has no “browser ready” message, send '+loginCommand+' for a new link.':'Starting the remote browser. This usually takes under a minute.',late?'Still waiting for the browser…':'Starting the browser…');
 }
 function setState(next){
  state=next;clearTimeout(retryTimer);
  if(next==='starting')renderStarting();
  else if(next==='live')render('Connected',LIVE_HINT);
  else if(next==='saving')render('Checking…','Checking your login. Telegram will confirm when it is saved.');
- else if(next==='dropped')render('Disconnected','The connection dropped. Tap reconnect, or send /tt_login for a new link if the session expired.','Connection lost.');
- else if(next==='ended')render('Ended',saveRequested?'This login session has finished. Check Telegram for the result.':'This login link has expired. Send /tt_login in Telegram for a new one.','Session ended.');
+ else if(next==='dropped')render('Disconnected','The connection dropped. Tap reconnect, or send '+loginCommand+' for a new link if the session expired.','Connection lost.');
+ else if(next==='ended')render('Ended',saveRequested?'This login session has finished. Check Telegram for the result.':'This login link has expired. Send '+loginCommand+' in Telegram for a new one.','Session ended.');
 }
 function fitStage(){
  // Match the box to the remote screen so no space is wasted on letterboxing.
@@ -72,7 +76,7 @@ save.onclick=async()=>{
   if(!r.ok)throw Error();
  }catch{saveRequested=false;setState('live');hint.textContent='Could not reach the server. Check your connection, then tap Save login again.';return;}
  // The runner checks the page every few seconds; block repeat taps while it verifies.
- clearTimeout(saveTimer);saveTimer=setTimeout(()=>{if(state==='saving'){saveRequested=false;setState('live');hint.textContent='Not saved yet. Make sure Product Ratings is open, then tap Save login again.';}},SAVE_LOCK_MS);
+ clearTimeout(saveTimer);saveTimer=setTimeout(()=>{if(state==='saving'){saveRequested=false;setState('live');hint.textContent='Not saved yet. Make sure '+destination+' is open, then tap Save login again.';}},SAVE_LOCK_MS);
 };
 reconnect.onclick=()=>{dropRetries=0;reconnect.hidden=true;render('Reconnecting…','Reconnecting to the remote browser…','Reconnecting…');connect();};
 

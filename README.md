@@ -92,3 +92,17 @@ build`, then run `npm test` in that directory. Worker secrets are BOT_TOKEN,
 GH_TOKEN, WEBHOOK_SECRET and CONTROL_TOKEN. Keep these out of source control.
 GitHub uses CONTROL_TOKEN and the CONTROL_URL variable. Local setup recovery data
 is protected under ignored `secrets/telegram-control.private`.
+
+## BigSeller and Main Dashboard stock sync
+
+The BigSeller integration uses the same private login-browser transport via
+`/bs_login` and the Main Dashboard Warehouse controls. A separate GitHub runner
+follows the supplied Single SKU / Export All workflow, validates the export and
+asks the existing Main Dashboard Apps Script importer to update stock and refresh
+Procurement. `/bs_dryrun` checks the export without changing stock;
+`/bs_status`, `/bs_run`, `/bs_pause` and `/bs_resume` control this separate service.
+
+See [BigSeller activation and verification](docs/bigseller-automation.md) for the
+required deployment settings, four-times-daily schedule and first-login check.
+The Main Dashboard source changes must be deployed alongside this repo's Worker
+and workflows before these controls become available in the live dashboard.
