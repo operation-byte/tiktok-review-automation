@@ -30,6 +30,10 @@ def test_csv_reads_bom_and_preserves_zero_stock(tmp_path):
     assert validate_export(path) == 1
 
 
+def test_inventory_header_can_follow_blank_rows_and_uses_existing_sheet_aliases():
+    assert validate_rows([[], ['', None], ['Inventory export'], ['SKU', 'Available Qty', 'SKU Category'], ['Single juice', 0, 'Single SKU']]) == 1
+
+
 def test_excel_inventory_uses_available_stock_and_rejects_blank_formula_cache(tmp_path):
     from openpyxl import Workbook
     workbook = Workbook()

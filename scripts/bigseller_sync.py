@@ -5,6 +5,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import itertools
 import json
 import math
 import os
@@ -29,15 +30,29 @@ def normalized(value):
 
 def validate_rows(values):
     rows = iter(values)
-    headers = [normalized(value) for value in next(rows, [])]
+    name_aliases = {'sku name', 'sku', 'sku code', 'seller sku', 'variation'}
+    quantity_aliases = {'available for whole warehouse', 'available stock', 'available stocks', 'available quantity', 'available qty', 'available for sale'}
+    type_aliases = {'sku type', 'sku category'}
+    headers, first_nonempty = [], []
+    # Excel exports can start with an empty row or an instruction heading.
+    for candidate in itertools.islice(rows, 25):
+        possible = [normalized(value) for value in candidate]
+        if any(possible) and not first_nonempty:
+            first_nonempty = possible
+        if set(possible) & name_aliases and set(possible) & quantity_aliases and set(possible) & type_aliases:
+            headers = possible
+            break
+    if not headers:
+        # Column labels only, to diagnose layout drift without logging SKU rows.
+        raise ValueError('Inventory header was not found; first export row: ' + json.dumps(first_nonempty[:30])[:1500])
     def column(aliases):
         found = [i for i, header in enumerate(headers) if header in aliases]
         if len(found) != 1:
             raise ValueError('Export must have exactly one ' + sorted(aliases)[0] + ' column')
         return found[0]
-    name = column({'sku name', 'variation'})
-    quantity = column({'available for whole warehouse', 'available stock'})
-    kind = column({'sku type', 'sku category'})
+    name = column(name_aliases)
+    quantity = column(quantity_aliases)
+    kind = column(type_aliases)
     seen, count = set(), 0
     for row in rows:
         if not any(value is not None and str(value).strip() for value in row):
