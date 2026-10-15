@@ -73,7 +73,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
    const summary=await this.ctx.storage.get('bigsellerSummary')||{};
    const selected=(action==='errors'?runs.filter(r=>r.conclusion&&r.conclusion!=='success'):runs).slice(0,3);
    const enabled=await this.bigSellerEnabled();
-   return {ok:true,status:{...summary,enabled,runs:selected.map(r=>({status:r.conclusion||r.status,url:r.html_url}))},message:`BigSeller scheduled sync: ${enabled?'enabled':'paused'}\nLast report: ${summary.status||'No report yet'}${summary.when?' · '+summary.when:''}${summary.rows!==undefined?'\nImported SKU rows: '+summary.rows:''}${summary.lastImportAt?'\nLast stock update: '+summary.lastImportAt:''}\n`+selected.map(r=>`${r.name}: ${r.conclusion||r.status}\n${r.html_url}`).join('\n')};
+   return {ok:true,status:{...summary,enabled,runs:selected.map(r=>({status:r.conclusion||r.status,url:r.html_url,created_at:r.created_at,updated_at:r.updated_at}))},message:`BigSeller scheduled sync: ${enabled?'enabled':'paused'}\nLast report: ${summary.status||'No report yet'}${summary.when?' · '+summary.when:''}${summary.rows!==undefined?'\nImported SKU rows: '+summary.rows:''}${summary.lastImportAt?'\nLast stock update: '+summary.lastImportAt:''}\n`+selected.map(r=>`${r.name}: ${r.conclusion||r.status}\n${r.html_url}`).join('\n')};
   }
   const active=runs.find(r=>!r.conclusion);
   if(active)return {ok:false,message:'A BigSeller login/sync job is already active.\n'+active.html_url};
