@@ -163,3 +163,22 @@ def test_lost_import_response_checks_status_before_any_resubmission(monkeypatch,
     importer.call = call
     assert importer.import_file(path, 4)['status'] == 'completed'
     assert calls == ['upload', 'import', 'status']
+
+
+def test_refresh_failure_reports_committed_stock_without_reimport(monkeypatch, tmp_path):
+    monkeypatch.setenv('BIGSELLER_IMPORT_SECRET', 'test-secret')
+    monkeypatch.setenv('BIGSELLER_IMPORT_URL', 'https://script.google.com/macros/s/test/exec')
+    path = tmp_path / 'inventory.csv'
+    path.write_text('export')
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    importer = DashboardImporter()
+    calls = []
+    def call(action, payload):
+        calls.append(action)
+        return {'ok': True, 'fileId': 'file', 'sha256': digest, 'rows': 4,
+                'status': 'uploaded' if action == 'upload' else 'refresh_failed',
+                'error': 'Protected cell'}
+    importer.call = call
+    with pytest.raises(RuntimeError, match='Stock was imported, but Procurement refresh failed: Protected cell'):
+        importer.import_file(path, 4)
+    assert calls == ['upload', 'import']

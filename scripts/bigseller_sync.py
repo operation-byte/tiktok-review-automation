@@ -160,7 +160,11 @@ class DashboardImporter:
             except RuntimeError:
                 # The POST may have completed: inspect its persisted receipt before retrying.
                 receipt = self.call('status', {'fileId': file_id})
-        if receipt.get('status') != 'completed' or receipt.get('fileId') != file_id or receipt.get('sha256') != digest or receipt.get('rows') != rows:
+        if receipt.get('fileId') != file_id or receipt.get('sha256') != digest or receipt.get('rows') != rows:
+            raise RuntimeError('Dashboard stock import/Procurement refresh is not confirmed; inspect import status before retrying')
+        if receipt.get('status') == 'refresh_failed':
+            raise RuntimeError('Stock was imported, but Procurement refresh failed: ' + str(receipt.get('error') or 'Inspect dashboard execution logs')[:500])
+        if receipt.get('status') != 'completed':
             raise RuntimeError('Dashboard stock import/Procurement refresh is not confirmed; inspect import status before retrying')
         return receipt
 

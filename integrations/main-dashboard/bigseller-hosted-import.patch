@@ -1,0 +1,70 @@
+--- a/BigSeller_Automation_Service.js
++++ b/BigSeller_Automation_Service.js
+@@ -708,8 +708,10 @@
+   // commit. Procurement/alert failures must not let an older Incoming file
+   // overwrite this newer stock source on the next 15-minute trigger.
+   const sourceWatermark = bigsellerAdvanceSourceWatermark_(file);
+-  warehouseSyncMerchantCodes_(stockSs, merchantIndex);
+-  warehouseEnsurePhysicalCountSystemStockFormula_(stockSs);
++  // Hosted imports own the reference snapshot only. Existing Physical Count
++  // formulas recalculate from it; rewriting those protected cells as the
++  // webhook identity can fail later when Apps Script flushes pending writes.
++  // Physical-count setup and merchant-code repairs remain explicit actions.
+   invalidateDashboardModuleCache_(['warehouse', 'procurement']);
+ 
+   const importId = procBuildId_('BSI', startedAt, procTimezone_());
+@@ -958,7 +960,9 @@
+ 
+ function bigsellerSendAutomationFailure_(message) {
+   try {
+-    bigsellerSendTelegram_('⚠️ <b>BigSeller automation needs attention</b>\n\n' + bigsellerEscapeTelegramHtml_(message));
++    // Technical failures belong in execution logs and signed run receipts.
++    // The Procurement group receives stock-transition alerts only.
++    Logger.log('BigSeller automation needs attention: ' + bigsellerSafeErrorMessage_(message));
+   } catch (error) {}
+ }
+ 
+--- a/tests/test_bigseller_automation.js
++++ b/tests/test_bigseller_automation.js
+@@ -367,3 +367,41 @@
+   assert.equal((message.match(/<b>/g)||[]).length,(message.match(/<\/b>/g)||[]).length);
+   assert.equal((message.match(/<a /g)||[]).length,(message.match(/<\/a>/g)||[]).length);
+ });
++
++test('hosted import refreshes reference stock without rewriting protected physical-count cells', () => {
++  const { context } = makeContext();
++  const target = {};
++  context.bigsellerReadDriveFileValues_ = () => [['SKU Name'], ['sku-1']];
++  context.bigsellerKeepSingleSkuRows_ = values => values;
++  context.warehouseReadMerchantCodeIndex_ = () => ({});
++  context.warehouseBuildLeanBigsellerSnapshot_ = values => values;
++  context.SpreadsheetApp = { openById: () => ({}) };
++  context.getRequiredStockSheet_ = () => target;
++  let replaced = false;
++  context.warehouseReplaceBigsellerSnapshot_ = (sheet, values) => { assert.equal(sheet, target); replaced = true; };
++  context.bigsellerAdvanceSourceWatermark_ = () => null;
++  context.warehouseSyncMerchantCodes_ = () => { throw Error('Physical-count merchant cells are protected'); };
++  context.warehouseEnsurePhysicalCountSystemStockFormula_ = () => { throw Error('Physical-count formulas are protected'); };
++  context.invalidateDashboardModuleCache_ = () => {};
++  context.procBuildId_ = () => 'import-1';
++  context.procTimezone_ = () => 'Asia/Singapore';
++  context.procGetControlSpreadsheet_ = () => ({});
++  context.procEnsureControlSheets_ = () => ({ imports: {}, activity: {} });
++  context.procAppendRows_ = () => {};
++  context.procCurrentActor_ = () => 'runner';
++  context.procLogActivity_ = () => {};
++  context.procFormatDateTime_ = () => '2026-10-16 18:00';
++  const result = context.bigsellerImportDriveFile_({ getId: () => 'file-1', getName: () => 'inventory.csv' });
++  assert.equal(replaced, true);
++  assert.equal(result.rows, 1);
++});
++
++test('technical failures stay in logs and do not send to the Procurement group', () => {
++  const { context } = makeContext();
++  const logs = [];
++  context.Logger = { log: message => logs.push(message) };
++  context.bigsellerSendTelegram_ = () => { throw Error('Group must not be notified'); };
++  context.bigsellerSendAutomationFailure_('Protected cell during refresh');
++  assert.equal(logs.length, 1);
++  assert.match(logs[0], /Protected cell/);
++});

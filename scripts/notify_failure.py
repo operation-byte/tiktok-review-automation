@@ -6,7 +6,7 @@ import urllib.request
 
 def main():
     if os.getenv('FAILURE_CONTEXT', '').strip() == 'bigseller':
-        return send_notice('⚠️ BigSeller automation failed or timed out. Check /bs_status for the run. Use /bs_login if login expired. A stock refresh is only confirmed after the dashboard importer succeeds.')
+        return send_notice('⚠️ BigSeller sync needs attention. Check /bs_status and the GitHub run for the exact stage. Stock may already be imported; inspect the receipt before retrying.')
     if os.getenv('FAILURE_CONTEXT', '').strip() == 'bigseller-login':
         return send_notice('⚠️ BigSeller login browser stopped. Request /bs_login for a fresh link. Your last saved login was preserved.')
     return send_notice(None)
