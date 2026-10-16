@@ -31,3 +31,23 @@ The public webhook's `ScriptApp.getService().getUrl()` cannot serve the Super
 Center UI and must never be used as the alert destination. Stale legacy URL
 properties are ignored. Existing Telegram messages retain their original URLs;
 new stock alerts use the corrected link.
+
+## Deployment identity
+
+The webhook also serves the private Task Tracker runner. It must execute as
+`jinyt@welive.network`; the company dashboard remains deployed as `operation@`.
+Never infer the Google identity from a credential profile called `default`.
+
+Use a dedicated `clasp -u jinyt login` profile. After reviewing and testing an
+Apps Script version, release it with:
+
+```sh
+python -m scripts.deploy_private_runner --version <tested-version>
+```
+
+The helper checks the actual OAuth account, the webhook manifest, and that the
+current source matches the tested version before any deployment write. It
+creates a fresh version as the verified owner and checks the live runner after
+deployment. An unsigned probe must return `Unauthorized.`, rather than the
+wrong-execution-account error. Updating an existing version alone did not
+restore the execution identity during the October 16 recovery.
