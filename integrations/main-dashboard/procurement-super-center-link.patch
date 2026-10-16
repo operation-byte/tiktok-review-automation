@@ -1,0 +1,83 @@
+--- a/BigSeller_Automation_Service.js
++++ b/BigSeller_Automation_Service.js
+@@ -17,7 +17,6 @@
+   telegramMentions: ['@dylann1', '@paperxuan', '@HanYangisTyping'],
+   telegramChatProperty: 'PROCUREMENT_TELEGRAM_CHAT_ID',
+   telegramThreadProperty: 'PROCUREMENT_TELEGRAM_THREAD_ID',
+-  dashboardUrlProperty: 'PROCUREMENT_DASHBOARD_WEB_APP_URL',
+   importedFileIdsProperty: 'BIGSELLER_IMPORTED_DRIVE_FILE_IDS',
+   receiptLedgerProperty: 'BIGSELLER_AUTOMATION_RECEIPTS',
+   sourceWatermarkProperty: 'BIGSELLER_SOURCE_WATERMARK',
+@@ -34,7 +33,6 @@
+ 
+ const BIGSELLER_RECEIPT_MAX_BYTES_ = 8000;
+ 
+-const DEFAULT_PROCUREMENT_DASHBOARD_URL_ = 'https://script.google.com/a/macros/welive.network/s/AKfycbzu5yX8s1toHk8TrdW8y0Jo3YWaTETty8AlWEnZgAVv-M_v1i5fM6uZu7GBzzmkfkLJRg/exec';
+ 
+ function getBigSellerHostedAutomationStatus() {
+   bigsellerRequireDashboardUser_(false);
+@@ -914,29 +912,24 @@
+ }
+ 
+ function bigsellerProcurementDashboardUrl_() {
+-  const properties = PropertiesService.getScriptProperties();
+-  const configuredUrl = String(properties.getProperty(BIGSELLER_AUTOMATION_.dashboardUrlProperty) || '').trim();
+-  const deployedUrl = String(ScriptApp.getService().getUrl() || '').trim();
+-  const taskTrackerUrl = String(properties.getProperty('TASK_TRACKER_TELEGRAM_WEB_APP_URL') || '').trim();
+-  return bigsellerBuildProcurementDashboardUrl_(
+-    configuredUrl,
+-    deployedUrl,
+-    taskTrackerUrl,
+-    DEFAULT_PROCUREMENT_DASHBOARD_URL_
+-  );
+-}
+-
+-function bigsellerBuildProcurementDashboardUrl_(configuredUrl, deployedUrl, taskTrackerUrl, legacyUrl) {
+-  const baseUrl = [deployedUrl, configuredUrl, taskTrackerUrl, legacyUrl].map(function(value) {
+-    return String(value || '').trim();
+-  }).filter(Boolean)[0] || '';
++  // Alerts run on the public webhook deployment. Its service URL cannot serve
++  // the Super Center UI; use the same company dashboard URL as sign-in.
++  return bigsellerBuildProcurementDashboardUrl_(DASHBOARD_SIGN_IN_URL_);
++}
++
++function bigsellerBuildProcurementDashboardUrl_(dashboardUrl) {
++  const baseUrl = String(dashboardUrl || '').trim();
+   if (!baseUrl) return '';
+-
+   const hashIndex = baseUrl.indexOf('#');
+   const hash = hashIndex >= 0 ? baseUrl.slice(hashIndex) : '';
+   const withoutHash = hashIndex >= 0 ? baseUrl.slice(0, hashIndex) : baseUrl;
+-  const separator = withoutHash.indexOf('?') >= 0 ? '&' : '?';
+-  return withoutHash + separator + 'view=procurement' + hash;
++  const queryIndex = withoutHash.indexOf('?');
++  const path = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
++  const query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1).split('&').filter(function(part) {
++    return part && part.split('=')[0] !== 'view';
++  }) : [];
++  query.push('view=procurement');
++  return path + '?' + query.join('&') + hash;
+ }
+ 
+ // Stock alerts must name the product *and* the variant. `product` is the parent
+--- a/tests/test_bigseller_automation.js
++++ b/tests/test_bigseller_automation.js
+@@ -405,3 +405,18 @@
+   assert.equal(logs.length, 1);
+   assert.match(logs[0], /Protected cell/);
+ });
++
++
++test('Procurement alerts link to the company Super Center even on the public webhook', () => {
++  const { context, properties } = makeContext();
++  properties.set('PROCUREMENT_DASHBOARD_WEB_APP_URL', 'https://obsolete.example/exec');
++  properties.set('TASK_TRACKER_TELEGRAM_WEB_APP_URL', 'https://old-task.example/exec');
++  context.ScriptApp = { getService: () => { throw Error('Webhook service URL must not be used'); } };
++  const url = context.bigsellerProcurementDashboardUrl_();
++  assert.equal(url, 'https://script.google.com/macros/s/AKfycbzReTWrTroZhDEqPJUgmkjtPuq4kB-06TznKgnTVvvqCuA6OqX_QlBpAEc2RN7wPcvxhg/exec?view=procurement');
++});
++
++test('Procurement links replace existing view and preserve other parameters and fragments', () => {
++  const { context } = makeContext();
++  assert.equal(context.bigsellerBuildProcurementDashboardUrl_('https://center.example/exec?view=tasks&team=ops#today'), 'https://center.example/exec?team=ops&view=procurement#today');
++});

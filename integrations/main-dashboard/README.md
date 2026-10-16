@@ -24,3 +24,10 @@ must retain their separate execution identity.
 For a `refresh_failed` receipt, inspect the matching file ID and checksum, then
 use the signed import action with `retryRefresh: true` to retry Procurement only.
 Do not upload or reimport the same stock file just to recover a refresh failure.
+
+`procurement-super-center-link.patch` applies after the hosted import patch.
+Alert links use `DASHBOARD_SIGN_IN_URL_` from `Code.js` with `view=procurement`.
+The public webhook's `ScriptApp.getService().getUrl()` cannot serve the Super
+Center UI and must never be used as the alert destination. Stale legacy URL
+properties are ignored. Existing Telegram messages retain their original URLs;
+new stock alerts use the corrected link.
