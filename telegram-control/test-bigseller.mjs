@@ -71,3 +71,27 @@ test('BigSeller summaries preserve last successful import across failed checks',
  assert.equal(data.get('bigsellerSummary').status,'login required');
  assert.equal(data.has('summary'),false);
 });
+
+test('BigSeller login reminder button is owner-only and duplicate deliveries dispatch once',async()=>{
+ const {c,calls}=fixture();c.env.OWNER_ID='42';c.tg=async()=>new Response('ok');c.say=async()=>{};
+ const update={update_id:900,callback_query:{id:'login',data:'bs_login',from:{id:42},message:{message_id:5,chat:{id:42,type:'private'}}}};
+ assert(isControlUpdate(update));
+ await Promise.all([c.update(update),c.update(update)]);
+ assert.equal(calls.filter(x=>x.path?.endsWith('/dispatches')).length,1);
+ assert.equal(calls[0].service,'bigseller');
+ const {c:other,calls:otherCalls}=fixture();other.env.OWNER_ID='42';
+ await other.update({...update,callback_query:{...update.callback_query,from:{id:9}}});
+ assert.equal(otherCalls.length,0);
+});
+
+test('unrelated export failures preserve an unresolved BigSeller login requirement',async()=>{
+ const {c,data}=fixture();
+ for(const summary of [{service:'bigseller',status:'login required',login_needed:true},{service:'bigseller',status:'export failed'}])await c.fetch(new Request('https://internal/summary',{method:'POST',body:JSON.stringify(summary)}));
+ assert.equal(data.get('bigsellerSummary').login_needed,true);
+});
+
+test('BigSeller status keeps offering login after an unrelated failure',async()=>{
+ const {c,data}=fixture();data.set('bigsellerSummary',{status:'export failed',login_needed:true});
+ const result=await c.bigSellerAction('status');
+ assert.match(result.message,/Login required.*\/bs_login/);
+});

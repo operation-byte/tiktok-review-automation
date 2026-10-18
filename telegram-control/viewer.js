@@ -8,6 +8,8 @@ if(bigseller){document.title='BigSeller secure login';document.querySelector('h1
 const $=x=>document.getElementById(x);
 const pill=$('pill'),statusText=$('status'),hint=$('hint'),overlay=$('overlay'),overlayText=$('overlayText'),stage=$('stage');
 const save=$('save'),keyboard=$('keyboard'),reconnect=$('connect'),input=$('type');
+const zoom=$('zoom'),pan=$('pan'),next=$('next'),enter=$('enter');
+let zoomed=false,panning=false,composing=false,tapStart=null;
 const RETRY_MS=3000,START_LIMIT_MS=5*60000,DROP_RETRIES=5,SAVE_LOCK_MS=20000;
 const touch=matchMedia('(pointer: coarse)').matches;
 // starting: waiting for the runner; live: screen connected; saving: verification requested;
@@ -23,10 +25,11 @@ function render(status,help,cover){
  overlay.hidden=!cover;if(cover)overlayText.textContent=cover;
  enable(save,state==='live');save.textContent=state==='saving'?'Checking login…':'Save login';
  keyboard.hidden=!touch;enable(keyboard,state==='live');
+ for(const button of [zoom,pan,next,enter]){button.hidden=!touch;enable(button,state==='live');}
  if(state!=='live'){keyboard.setAttribute('aria-pressed','false');input.blur();}
  reconnect.hidden=!(state==='dropped'||(state==='starting'&&Date.now()-viewerStart>60000));
 }
-const LIVE_HINT=touch?'Log in and open '+destination+', then tap Save login. Tap ⌨ to type'+(matchMedia('(orientation: portrait)').matches?'; turn your phone sideways for a bigger screen.':'.'):'Click the screen to type. Open '+destination+', then click Save login.';
+function liveHint(){return touch?'Tap a field to type. Use Zoom for larger text, and Pan to move around. Open '+destination+', then tap Save login.':'Click the screen to type. Open '+destination+', then click Save login.';}
 function renderStarting(){
  const late=Date.now()-viewerStart>180000;
  render('Starting…',late?'Still starting after 3 minutes. If Telegram has no “browser ready” message, send '+loginCommand+' for a new link.':'Starting the remote browser. This usually takes under a minute.',late?'Still waiting for the browser…':'Starting the browser…');
@@ -34,7 +37,7 @@ function renderStarting(){
 function setState(next){
  state=next;clearTimeout(retryTimer);
  if(next==='starting')renderStarting();
- else if(next==='live')render('Connected',LIVE_HINT);
+ else if(next==='live')render('Connected',liveHint());
  else if(next==='saving')render('Checking…','Checking your login. Telegram will confirm when it is saved.');
  else if(next==='dropped')render('Disconnected','The connection dropped. Tap reconnect, or send '+loginCommand+' for a new link if the session expired.','Connection lost.');
  else if(next==='ended')render('Ended',saveRequested?'This login session has finished. Check Telegram for the result.':'This login link has expired. Send '+loginCommand+' in Telegram for a new one.','Session ended.');
@@ -49,7 +52,9 @@ function connect(){
  if(rfb){const old=rfb;rfb=null;try{old.disconnect()}catch{}}
  try{
   const session=new RFB($('screen'),`${location.protocol==='https:'?'wss':'ws'}://${location.host}/vnc/${id}`);
-  session.scaleViewport=true;session.resizeSession=false;session.focusOnClick=true;
+  session.resizeSession=false;session.focusOnClick=!touch;
+  session.qualityLevel=5;session.compressionLevel=6;
+  session.scaleViewport=!zoomed;session.clipViewport=zoomed;session.dragViewport=panning;
   session.addEventListener('connect',()=>{dropRetries=0;setState('live');fitStage();});
   session.addEventListener('desktopname',fitStage);
   session.addEventListener('disconnect',()=>{if(rfb!==session)return;rfb=null;lost();});
@@ -80,25 +85,76 @@ save.onclick=async()=>{
 };
 reconnect.onclick=()=>{dropRetries=0;reconnect.hidden=true;render('Reconnecting…','Reconnecting to the remote browser…','Reconnecting…');connect();};
 
-// Phones only raise their keyboard for a focused text field, so a hidden field forwards each key live.
+// Keep focus in a local input during the original touch gesture. Focusing after
+// a network round trip cannot open the keyboard in iOS Safari.
 const SENTINEL='________';
 function key(sym){if(rfb&&state==='live'){rfb.sendKey(sym,undefined,true);rfb.sendKey(sym,undefined,false);}}
 function resetInput(){input.value=SENTINEL;input.setSelectionRange(SENTINEL.length,SENTINEL.length);}
+function openKeyboard(){
+ if(state!=='live'||panning)return;
+ if(document.activeElement!==input){resetInput();input.focus({preventScroll:true});}
+ keyboard.setAttribute('aria-pressed','true');
+}
 keyboard.onclick=()=>{
  if(!enabled(keyboard))return;
- const open=keyboard.getAttribute('aria-pressed')!=='true';
- keyboard.setAttribute('aria-pressed',String(open));
- if(open){resetInput();input.focus();}else input.blur();
+ if(document.activeElement===input)input.blur();else{setPan(false);openKeyboard();}
 };
-input.addEventListener('blur',()=>keyboard.setAttribute('aria-pressed','false'));
-input.addEventListener('input',()=>{
- const v=input.value;
- if(v.length<SENTINEL.length)for(let i=v.length;i<SENTINEL.length;i++)key(0xff08);
- else for(const ch of v.slice(SENTINEL.length)){const cp=ch.codePointAt(0);key(cp<=255?cp:0x01000000|cp);}
+input.addEventListener('blur',()=>{keyboard.setAttribute('aria-pressed','false');composing=false;resetInput();});
+function forwardInput(){
+ const value=input.value;
+ if(value.length<SENTINEL.length)for(let i=value.length;i<SENTINEL.length;i++)key(0xff08);
+ else for(const ch of value.slice(SENTINEL.length)){const cp=ch.codePointAt(0);key(cp<=255?cp:0x01000000|cp);}
  resetInput();
+}
+input.addEventListener('compositionstart',()=>{composing=true;});
+input.addEventListener('compositionend',()=>{composing=false;forwardInput();});
+input.addEventListener('input',()=>{if(!composing)forwardInput();});
+input.addEventListener('keydown',e=>{
+ if(e.isComposing)return;
+ const sym={Enter:0xff0d,Tab:0xff09,Escape:0xff1b,ArrowLeft:0xff51,ArrowUp:0xff52,ArrowRight:0xff53,ArrowDown:0xff54}[e.key];
+ if(sym){e.preventDefault();key(sym);}
 });
-input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();key(0xff0d);}});
-
+// Prevent toolbar buttons from dismissing the keyboard before sending keys.
+for(const [button,sym] of [[next,0xff09],[enter,0xff0d]]){
+ button.addEventListener('pointerdown',e=>e.preventDefault());
+ button.onclick=()=>{if(enabled(button)){setPan(false);key(sym);openKeyboard();}};
+}
+function setPan(on){
+ panning=on;pan.setAttribute('aria-pressed',String(on));
+ if(rfb)rfb.dragViewport=on;
+ if(on)input.blur();
+ hint.textContent=on?'Drag to move around the enlarged screen. Tap Pan again to type.':liveHint();
+}
+zoom.onclick=()=>{
+ if(!enabled(zoom)||!rfb)return;
+ zoomed=!zoomed;stage.classList.toggle('zoomed',zoomed);
+ zoom.setAttribute('aria-pressed',String(zoomed));zoom.textContent=zoomed?'Fit screen':'Zoom';
+ rfb.scaleViewport=!zoomed;rfb.clipViewport=zoomed;
+ if(!zoomed)setPan(false);
+ pan.disabled=!zoomed;
+};
+pan.disabled=true;
+pan.onclick=()=>{if(enabled(pan)&&zoomed)setPan(!panning);};
+// Ignore swipes and multi-touch; a single tap raises the keyboard immediately.
+$('screen').addEventListener('touchstart',e=>{
+ const t=e.touches[0];tapStart=e.touches.length===1?{x:t.clientX,y:t.clientY}:null;
+},{passive:true,capture:true});
+$('screen').addEventListener('touchmove',e=>{
+ const t=e.touches[0];
+ if(!t||e.touches.length!==1||tapStart&&Math.hypot(t.clientX-tapStart.x,t.clientY-tapStart.y)>10)tapStart=null;
+},{passive:true,capture:true});
+$('screen').addEventListener('touchend',e=>{
+ if(touch&&tapStart&&e.touches.length===0)openKeyboard();
+ tapStart=null;
+},{passive:true,capture:true});
+$('screen').addEventListener('touchcancel',()=>{tapStart=null;},{passive:true,capture:true});
+// The visual viewport shrinks when the phone keyboard opens. Only change the
+// viewer height: the remote desktop and its controls keep their coordinates.
+function sizeViewport(){
+ const viewport=window.visualViewport;
+ document.documentElement.style.setProperty('--visible-height',(viewport?.height||innerHeight)+'px');
+}
+window.visualViewport?.addEventListener('resize',sizeViewport);
+window.addEventListener('resize',sizeViewport);sizeViewport();
 setState('starting');connect();
-// Refresh the waiting text (and offer reconnect after a minute) without disturbing the retry timer.
 setInterval(()=>{if(state==='starting')renderStarting();},15000);

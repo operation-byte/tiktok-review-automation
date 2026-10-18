@@ -18,7 +18,7 @@ export function parseCommand(text=''){
  if(!['help','status','errors','run','dryrun','pause','resume','login','loginstatus'].includes(action)||parts.length>2||!['all',...SHOPS].includes(shop)||(action==='login'&&shop==='all'))return {error:true};
  return {action,shop};
 }
-export function parseCallback(data=''){const shop=typeof data==='string'&&data.startsWith('tt_login:')?data.slice(9):'';return SHOPS.includes(shop)?{action:'login',shop}:null;}
+export function parseCallback(data=''){if(data==='bs_login')return {action:'login',service:'bigseller'};const shop=typeof data==='string'&&data.startsWith('tt_login:')?data.slice(9):'';return SHOPS.includes(shop)?{action:'login',shop}:null;}
 export function parseBigSellerCommand(text=''){
  const parts=text.trim().toLowerCase().split(/\s+/),name=parts[0].split('@')[0];
  if(!name.startsWith('/bs_'))return null;
@@ -27,9 +27,9 @@ export function parseBigSellerCommand(text=''){
 }
 const parseControlCommand=text=>parseBigSellerCommand(text)||parseCommand(text);
 export function authorisedCallback(cq,owner){return String(cq?.from?.id)===owner && cq?.message?.chat?.type==='private' && String(cq.message.chat.id)===owner;}
-// TikTok traffic is only /tt_* commands and tt_login:* buttons; everything else belongs to the stock bot.
-export const isTikTokUpdate=u=>!!(parseCommand(u?.message?.text)||parseCallback(u?.callback_query?.data));
-export const isControlUpdate=u=>isTikTokUpdate(u)||!!parseBigSellerCommand(u?.message?.text);
+// Namespaced automation commands and login buttons stay here; stock traffic is forwarded.
+export const isTikTokUpdate=u=>{const callback=parseCallback(u?.callback_query?.data);return !!(parseCommand(u?.message?.text)||(callback&&callback.service!=='bigseller'));};
+export const isControlUpdate=u=>isTikTokUpdate(u)||!!parseBigSellerCommand(u?.message?.text)||parseCallback(u?.callback_query?.data)?.service==='bigseller';
 export const validSession=(s,now=Date.now())=>!!s && s.expires>now && ['starting','ready'].includes(s.status);
 const HELP='TikTok reviews\n/tt_status — latest run and login status\n/tt_run [shop|all] — live review check\n/tt_dryrun [shop|all] — no posting\n/tt_pause — pause future live runs\n/tt_resume — enable daily runs\n/tt_login — tap a shop button to log in\n/tt_errors — recent failures and recovery\nShop names: welive_main, snackersbox, konomi_living.\nRelogin opens a private browser link on phone or computer. Never send passwords or OTPs in chat.';
 const BS_HELP='BigSeller stock sync\n/bs_login — private BigSeller login browser\n/bs_run — export Single SKU inventory and update dashboard stock\n/bs_dryrun — download and validate export without updating stock\n/bs_status — latest login, stock import and job status\n/bs_pause — pause scheduled syncs\n/bs_resume — enable scheduled syncs\n/bs_errors — recent failed jobs\nUse Warehouse in the main dashboard for the same controls. Never send passwords or OTPs in chat.';
@@ -51,12 +51,12 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
   try{
    if(cb){
     const cmd=parseCallback(cb.data);
-    await this.tg('answerCallbackQuery',{callback_query_id:cb.id,text:cmd?'Starting login for '+LABELS[cmd.shop]:'That button is no longer valid.'}).catch(()=>{});
+    await this.tg('answerCallbackQuery',{callback_query_id:cb.id,text:cmd?'Starting login for '+(cmd.service==='bigseller'?'BigSeller':LABELS[cmd.shop]):'That button is no longer valid.'}).catch(()=>{});
     if(!cmd)return;
     await this.tg('editMessageReplyMarkup',{chat_id:cb.message.chat.id,message_id:cb.message.message_id,reply_markup:{inline_keyboard:[]}}).catch(()=>{});
     await this.command(cmd,u.update_id);
    }else await this.command(parseControlCommand(u.message.text),u.update_id);
-  }catch(e){const bs=!!parseBigSellerCommand(u.message?.text);await this.say(`${bs?'BigSeller':'TikTok'} command could not complete (${String(e.message).slice(0,80)}). Use ${bs?'/bs_status':'/tt_status'} before retrying; a request may already have started.`);}finally{this.busy=false;}
+  }catch(e){const bs=!!parseBigSellerCommand(u.message?.text)||parseCallback(cb?.data)?.service==='bigseller';await this.say(`${bs?'BigSeller':'TikTok'} command could not complete (${String(e.message).slice(0,80)}). Use ${bs?'/bs_status':'/tt_status'} before retrying; a request may already have started.`);}finally{this.busy=false;}
  }
  async runs(workflows=WORKFLOWS){return (await this.gh('/actions/runs?per_page=50')).workflow_runs.filter(r=>workflows.some(w=>r.path===`.github/workflows/${w}`));}
  async bigSellerEnabled(){try{return (await this.gh('/actions/variables/BIGSELLER_AUTOMATION_ENABLED')).value==='true';}catch(e){if(e.message==='GitHub 404')return false;throw e;}}
@@ -73,7 +73,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
    const summary=await this.ctx.storage.get('bigsellerSummary')||{};
    const selected=(action==='errors'?runs.filter(r=>r.conclusion&&r.conclusion!=='success'):runs).slice(0,3);
    const enabled=await this.bigSellerEnabled();
-   return {ok:true,status:{...summary,enabled,runs:selected.map(r=>({status:r.conclusion||r.status,url:r.html_url,created_at:r.created_at,updated_at:r.updated_at}))},message:`BigSeller scheduled sync: ${enabled?'enabled':'paused'}\nLast report: ${summary.status||'No report yet'}${summary.when?' · '+summary.when:''}${summary.rows!==undefined?'\nImported SKU rows: '+summary.rows:''}${summary.lastImportAt?'\nLast stock update: '+summary.lastImportAt:''}\n`+selected.map(r=>`${r.name}: ${r.conclusion||r.status}\n${r.html_url}`).join('\n')};
+   return {ok:true,status:{...summary,enabled,runs:selected.map(r=>({status:r.conclusion||r.status,url:r.html_url,created_at:r.created_at,updated_at:r.updated_at}))},message:`BigSeller scheduled sync: ${enabled?'enabled':'paused'}\nLast report: ${summary.status||'No report yet'}${summary.when?' · '+summary.when:''}${summary.login_needed?'\nLogin required — tap Login to BigSeller in the alert or use /bs_login.':''}${summary.rows!==undefined?'\nImported SKU rows: '+summary.rows:''}${summary.lastImportAt?'\nLast stock update: '+summary.lastImportAt:''}\n`+selected.map(r=>`${r.name}: ${r.conclusion||r.status}\n${r.html_url}`).join('\n')};
   }
   const active=runs.find(r=>!r.conclusion);
   if(active)return {ok:false,message:'A BigSeller login/sync job is already active.\n'+active.html_url};

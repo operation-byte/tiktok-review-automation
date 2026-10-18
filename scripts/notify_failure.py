@@ -1,5 +1,6 @@
 """Best-effort Telegram signal when GitHub fails before the normal daily report."""
 import os
+import json
 import urllib.parse
 import urllib.request
 
@@ -12,7 +13,7 @@ def main():
     return send_notice(None)
 
 
-def send_notice(text=None):
+def send_notice(text=None, *, reply_markup=None):
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat = os.getenv("TELEGRAM_ALERT_CHAT_ID", "").strip()
     allowed = set(os.getenv("TELEGRAM_ALLOWED_IDS", "").replace(" ", "").split(","))
@@ -20,16 +21,14 @@ def send_notice(text=None):
         print("Telegram alert skipped: not configured")
         return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    if text:
-        pass
-    elif os.getenv("FAILURE_CONTEXT", "").strip() == "relogin":
+    if not text and os.getenv("FAILURE_CONTEXT", "").strip() == "relogin":
         text = "⚠️ TikTok relogin browser stopped unexpectedly (failed or timed out). Your saved login was not changed. Use /tt_login to request a fresh link."
-    else:
+    elif not text:
         text = "⚠️ TikTok daily GitHub Actions check FAILED or needs attention. Open your private GitHub Actions run for details. No automatic rerun will post replies until the next check."
-    payload = urllib.parse.urlencode({
-        "chat_id": chat,
-        "text": text,
-    }).encode()
+    fields = {"chat_id": chat, "text": text}
+    if reply_markup:
+        fields["reply_markup"] = json.dumps(reply_markup)
+    payload = urllib.parse.urlencode(fields).encode()
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data=payload, method="POST"), timeout=12):
             pass

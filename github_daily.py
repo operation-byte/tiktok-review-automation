@@ -1,4 +1,4 @@
-"""Once-a-day GitHub runner: all three shops, sequential, fail closed.
+"""Once-a-day GitHub runner: configured shops, sequential, fail closed.
 
 Do not invoke the long-running Telegram controller on ephemeral Actions runners.
 Instead, use the same per-shop job logic and send a consolidated Telegram report.

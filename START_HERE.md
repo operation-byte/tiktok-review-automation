@@ -1,45 +1,92 @@
-# One daily check of 3 TikTok shops — finish setup
+# Setup and daily operation
 
-## Current deployment
+TikTok review checks and BigSeller stock exports run on GitHub Actions. Telegram
+controls and the temporary login viewer run in the `tiktok-review-control`
+Cloudflare Worker. Your computer does not need to stay on for hosted runs.
 
-This deployment selects **WELIVE, Snacker's Box and Konomi Living** (`AUTOMATION_SHOPS=welive_main,snackersbox,konomi_living`); Konomi Living is excluded. It uses the original **rolling 30-day review window**, including the boundary day, with no fixed start date. Already-replied reviews are skipped using TikTok's unreplied queues and the imported reply ledger. The original ZIP's 130 submitted reply records and 129 unique Sheet markers were merged with current cloud state while preserving current logins. Google Sheets uses the original browser writer with authenticated CSV reads from `Backend Data`, `gid=298261214`. Only verified new replies produce Sheet rows, with duplicate detection by review key rather than order ID. Existing older Sheet rows are retained. The daily schedule is 09:15 Singapore time, and Telegram reports results or login issues.
+For an existing deployment, use the commands in [README.md](README.md) and the
+release steps in [DEPLOY_NOTES.md](DEPLOY_NOTES.md). The setup wizard below is for
+bootstrapping a private repository from the original Windows backup. It sets
+public replies off and is not the routine way to update a running deployment.
 
-**No credit card, no Oracle VM, no need to leave Windows on.** GitHub Actions runs the **original Python/Playwright** review checks at **09:15 Asia/Singapore** each day. Reviews go into your existing **[TikTok Negative Review KPI](https://docs.google.com/spreadsheets/d/1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs/edit)**, tab `Backend Data`, using the configured browser writer (no service-account key needed). Telegram warns when login is required.
+## Bootstrap a new private deployment
 
-## One-time installation (automates GitHub setup)
+1. Install Python 3.12 or newer, Git, and GitHub CLI. Authorize your GitHub account
+   when the wizard opens the browser.
+2. Create a Telegram bot with BotFather. The wizard prompts for its token without
+   displaying it, then asks you to send `/start` privately to identify the alert
+   recipient. This initializes outbound alerts; the interactive Worker controls
+   require the separate Cloudflare configuration in the deployment notes.
+3. Put the original `Tiktok Auto Reply Negative Reviews.zip` in this directory or
+   your Downloads directory. On Windows, run `FINISH_SETUP_WINDOWS.cmd` or
+   `FINISH_SETUP_WINDOWS.ps1`. On other systems, install `requirements-github.txt`
+   and run `python -m scripts.finish_setup --original-zip /path/to/backup.zip`.
+4. The wizard creates a private repository, stages the source allowlist, stores
+   secrets in GitHub Actions, and uploads encrypted history and browser sessions
+   to the separate `automation-state` branch. It preserves existing cloud state.
+5. Open the resulting Actions page. Review `check-setup.yml` and the initial
+   check with public replies disabled. Complete interactive login for any expired
+   sessions, then run a dry run for each configured shop.
+6. After checking review eligibility, duplicate protection, and the Sheet writer,
+   set `ENABLE_SUBMIT=true` to permit public replies. Disable old Windows tasks
+   that would run the same reviews or produce duplicate stock exports.
 
-1. Install [Python 3.12+](https://www.python.org/downloads/), [Git](https://git-scm.com/downloads), and [GitHub CLI](https://cli.github.com/), and create a free GitHub account if needed. Do not put any sessions or customer data into a **public** GitHub repository.
-2. Create a **new Telegram bot** using [@BotFather](https://t.me/BotFather). Keep the bot token private. You will enter it in a hidden prompt on your own PC. You will be asked to open the bot and send `/start`; the installer retrieves your personal user/chat IDs automatically.
-3. Put your original `Tiktok Auto Reply Negative Reviews.zip` in the same folder as this extracted project, or in Windows Downloads. **Double-click `FINISH_SETUP_WINDOWS.cmd`.** The setup wizard also accepts `python -m scripts.finish_setup --original-zip "C:\\your\\path\\Tiktok Auto Reply Negative Reviews.zip"`.
-4. Authorize **GitHub in the browser** when asked. The installer automatically creates a private repository, pushes only source files, encrypts and uploads the old review history + 3 TikTok session files into a separate state branch, registers GitHub secrets and variables, and triggers a connection check and an initial **dry-run**. Neither workflow posts a public reply during setup.
-5. Open the GitHub Actions link shown by the installer and review the results. TikTok may require a one-time manual login or reject Linux headless browsers. **Live posting is intentionally OFF until all shops have passed a supervised dry-run.** Disable the old Windows Task Scheduler tasks before the first actual live run.
+`AUTOMATION_SHOPS` selects a comma-separated list from `welive_main`,
+`snackersbox`, and `konomi_living`. The default is all three. Set it in the local
+setup environment before bootstrapping to select fewer shops; the wizard stores
+that selection as the GitHub Actions variable. Only selected shops need imported
+sessions. Review checks run sequentially at 09:15 Asia/Singapore when
+`AUTOMATION_ENABLED=true`. GitHub can delay scheduled starts.
 
-## Connecting the *same* Google Sheet
+## Connect the existing KPI Sheet
 
-Browser mode reuses the original Playwright row writer and needs no service-account key. Set the repository variable `GOOGLE_SHEETS_MODE=browser`. Only verified live submissions append rows; dry runs leave the Sheet untouched. The writer checks review keys and preserves `logs/google_sheet_logged_keys.txt` in encrypted state across runs. Sheet failures send a Telegram alert; review the saved CSV and Sheet before retrying.
+The configured Sheet is **TikTok Negative Review KPI**, tab **Backend Data**
+(`gid=298261214`). Keep its existing rows and columns.
 
-For each shop's local automation browser, log into TikTok and open the existing KPI Sheet in another tab. Sign into Google if editing requires it, then save that browser session. The saved state must include both TikTok and Google access. The writer reads the CSV export through the authenticated browser before appending and verifying rows. The setup check can read headers anonymously when permitted; private-sheet validation is deferred until Google login. Cloud session portability must be validated before enabling replies. Do not make a private Sheet public to work around access failures.
+For browser mode, set `GOOGLE_SHEETS_MODE=browser`. The saved browser session for
+each shop must include Google access to the Sheet as well as TikTok access. The
+writer reads CSV through that authenticated browser and appends only verified
+new replies. Dry runs disable Sheet writes. Do not make the Sheet public to
+work around missing Google login.
 
-For a local login, use `.venv/bin/python auto_reply_reviews.py --mode login --profile welive_main` (then `snackersbox`, then `konomi_living`). Complete both TikTok and Google authentication in that shop's browser before pressing ENTER in the terminal. GitHub Actions does not provide an interactive login screen. History import remains required before running cloud checks.
+For local session preparation, install Chromium with `python -m playwright install
+chromium`, then run:
 
-Your existing file and column layout are preserved. Your ChatGPT Google Drive connection does not transfer an API credential to GitHub. For the alternative API mode, a Google Cloud service account with the Google Sheets API enabled must have **Editor** access to that existing Sheet. If you already have its private JSON key, run:
-
-```powershell
-python -m scripts.finish_setup --google-credentials "C:\path\service-account.json"
+```sh
+python auto_reply_reviews.py --mode login --profile welive_main
 ```
 
-The installer reads and verifies Sheet access (without writing), uploads the key as a GitHub Secret and configures `GOOGLE_SHEETS_MODE=api`. If the Sheet has not yet been shared, the installer gives you the service-account email. Share the Sheet, then rerun the command. **Never upload the JSON key to GitHub source control or send it to Telegram.** If you don't have a service account, Google Sheets sync stays OFF; your current spreadsheet is not modified or replaced.
+Complete TikTok and Google sign-in in that browser before confirming in the
+terminal. Repeat for other selected profiles. This saves local sessions; it does
+not upload them or replace the cloud ledger. Use the private Telegram login flow
+for routine hosted TikTok session refreshes.
 
-## Re-login alerts
+API mode is optional. Share the same Sheet with a Google service account as an
+Editor and provide its JSON file using the wizard's `--google-credentials` option.
+The wizard validates headers without writing before uploading the credential as
+a GitHub secret. Never commit that JSON file. Without configured browser or API
+access, keep `GOOGLE_SHEETS_MODE=off`.
 
-If TikTok expires a shop session, the daily job stops processing that shop, flags the error in Telegram and preserves the latest encrypted state. **Telegram cannot complete TikTok's 2FA for you**, so the affected login must be refreshed interactively. Send `/tt_login` in Telegram and tap the shop button (or type `/tt_login welive_main`, `/tt_login snackersbox` or `/tt_login konomi_living`) to open a temporary private login browser on your phone or computer. Complete login, confirm the correct shop and tap Save login; Telegram confirms when the refreshed encrypted session is saved. A failed/ambiguous submit must be checked in Seller Center before retrying.
+## Refresh expired logins
 
-## Safety / running costs
+Send `/tt_login` privately and choose a shop, or use `/tt_login welive_main`.
+Open the private link, complete login and OTP, open Product Ratings for the
+correct shop, and tap **Save login**. Telegram confirms the verified save.
+Existing history is restored before saving the refreshed session.
 
-- All scheduled runs are sequential: **WELIVE → Snacker's Box**.
-- The automation will try the first cloud dry-run, but some parts cannot be verified until GitHub, Telegram, Google and TikTok authenticate.
-- It restores encrypted customer review history every run; private encryption key stays in GitHub Secrets and separately on your own computer.
-- It never enables public posting without your supervision (`ENABLE_SUBMIT=false`). Once verified, change the repository Actions variable `ENABLE_SUBMIT` to `true` and ensure old Windows scheduled jobs are OFF.
-- GitHub Free has included Actions minutes for private repositories; once the included allowance is exhausted without payment details, execution is blocked rather than charged. GitHub can delay or skip scheduled starts.
+For BigSeller, tap **Login to BigSeller** in an expiry alert or send `/bs_login`.
+Open Inventory List after signing in, then tap **Save login**. BigSeller sessions
+are encrypted independently on the `bigseller-state` branch.
 
-**If the installer reports a failure, fix the named prerequisite and rerun the same script.** It preserves previously uploaded state rather than replacing newer cloud review history.
+On a phone, tap the remote screen to open the keyboard. **Zoom** enlarges the
+screen; **Pan** lets you drag it around. Turn Pan off to type, or use **Next field**
+and **Enter** above the keyboard. The keyboard button shows or hides typing.
+Sessions close after 15 minutes of browser availability. Failed login attempts
+preserve the last saved state.
+
+Expiry is detected during scheduled or manual checks. Ambiguous public replies
+require inspection in Seller Center before any retry; refreshing login does not
+clear the duplicate ledger.
+
+For stock-sync setup, schedules, importer settings and failure recovery, see
+[BigSeller automation](docs/bigseller-automation.md).

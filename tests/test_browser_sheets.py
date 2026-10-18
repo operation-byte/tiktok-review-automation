@@ -37,12 +37,12 @@ def test_existing_order_does_not_suppress_different_review(monkeypatch,tmp_path)
     args=SimpleNamespace(google_sheets=True,google_log_attempts=False,google_sheet_marker_path=str(tmp_path/'keys'),google_sheet_url='https://docs.google.com/spreadsheets/d/test/edit',google_sheet_after_paste_wait_ms=0)
     entry=reviews.ReplyLogEntry(**{key:'' for key in reviews.ReplyLogEntry.__dataclass_fields__})
     entry.status='submitted'; entry.order_id='sample-order'; entry.review_key='different-review'; entry.profile='welive_main'
-    monkeypatch.setattr(reviews,'google_sheet_contains_order_id',lambda order, **kwargs: True)
-    monkeypatch.setattr(reviews,'detect_google_sheet_next_blank_row',lambda **kwargs: 12)
+    monkeypatch.setattr(reviews,'fetch_google_sheet_rows',lambda **kwargs: [['Order ID'], ['sample-order', '2026-10-08']])
     paste=Mock(); monkeypatch.setattr(reviews,'paste_google_sheet_row',paste)
     monkeypatch.setattr(reviews,'google_sheet_row_matches',lambda *a,**kw: True)
     reviews.manual_append_google_sheet_log(Mock(),args,entry,'2026-10-09')
     paste.assert_called_once()
+    assert paste.call_args.args[1] == 3
     assert (tmp_path/'keys').read_text().strip()=='different-review'
 
 

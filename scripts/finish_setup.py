@@ -20,7 +20,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from tempfile import TemporaryDirectory
-from scripts.bootstrap_state import validate
+from scripts.bootstrap_state import SHOPS, validate
 from scripts.state_vault import unpack, pack
 
 from scripts.bootstrap_from_backup import prepare
@@ -29,11 +29,15 @@ from scripts.github_state import GitHubStateStore, StateStoreError
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPO = "tiktok-review-automation"
 SHEET_ID = "1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs"
-STAGED = [".github", ".gitignore", "auto_reply_reviews.py", "cloud_controller.py",
-          "cloud_login.py", "github_daily.py", "google_sheet_sync.py",
-          "queue_processor.py", "reply_submission.py", "review_detection.py",
-          "tiktok_navigation.py", "scripts", "tests", "requirements-github.txt",
-          "README.md", "START_HERE.md", "FINISH_SETUP_WINDOWS.cmd", "FINISH_SETUP_WINDOWS.ps1"]
+STAGED = [
+    ".github", ".gitignore", "auto_reply_reviews.py", "cloud_controller.py",
+    "cloud_login.py", "github_daily.py", "google_sheet_sync.py", "review_policy.py",
+    "queue_processor.py", "reply_submission.py", "review_detection.py", "tiktok_navigation.py",
+    "scripts", "tests", "docs", "integrations", "telegram-control",
+    "requirements-github.txt", "requirements-relogin.txt", "requirements-bigseller.txt",
+    "requirements-dev.txt", "README.md", "START_HERE.md", "DEPLOY_NOTES.md",
+    "FINISH_SETUP_WINDOWS.cmd", "FINISH_SETUP_WINDOWS.ps1",
+]
 
 
 class SetupError(RuntimeError):
@@ -183,13 +187,13 @@ def ensure_private_bootstrap(source: Path) -> dict:
         with TemporaryDirectory(prefix="tiktok-verify-") as d:
             unpack(encrypted.read_bytes(), Path(d), key_path.read_text(encoding="utf-8").strip())
             summary = validate(Path(d))
-        return {"history": summary["verified_submission_count"], "sessions": 3}
+        return {"history": summary["verified_submission_count"], "sessions": len(summary["shop_sessions"])}
     if key_path.is_file() and not encrypted.exists():
         # Recover from an interrupted bootstrap only if the private ledger is complete.
         summary = validate(ROOT)
         encrypted.write_bytes(pack(ROOT, key_path.read_text(encoding="utf-8").strip()))
         if os.name != "nt": encrypted.chmod(0o600)
-        return {"history": summary["verified_submission_count"], "sessions": 3}
+        return {"history": summary["verified_submission_count"], "sessions": len(summary["shop_sessions"])}
     if encrypted.exists() or (ROOT / "logs/replied_reviews.csv").exists():
         raise SetupError("Partial existing bootstrap has no trusted key. Do not overwrite history; restore the private key from your backup")
     summary = prepare(source, ROOT, key_path)
@@ -236,6 +240,7 @@ def deploy(args: argparse.Namespace) -> dict:
         else:
             os.environ["GITHUB_SHA"] = original_sha
     # Keep public posting safely disabled until the first supervised dry-run.
+    set_variable(full, "AUTOMATION_SHOPS", ",".join(SHOPS))
     set_variable(full, "AUTOMATION_ENABLED", "true")
     set_variable(full, "ENABLE_SUBMIT", "false")
     set_variable(full, "GOOGLE_SHEETS_MODE", "off")
@@ -255,7 +260,7 @@ def deploy(args: argparse.Namespace) -> dict:
     print("Private GitHub repository: https://github.com/" + full)
     print("Telegram bot: https://t.me/" + username)
     print("Encrypted review history and shop sessions: stored in separate private branch")
-    print("Daily schedule: 09:15 Singapore time, all 3 shops, once daily")
+    print("Daily schedule: 09:15 Singapore time; shops: " + ", ".join(SHOPS))
     print("Google Sheet: " + ("connected (read-only check passed)" if google_enabled else "original preserved; API connection pending"))
     print("Public TikTok replies: DISABLED until successful supervised validation")
     print("Setup workflow: " + ("dispatched" if check_triggered else "open Actions and run check-setup.yml"))

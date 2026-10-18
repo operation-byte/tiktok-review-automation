@@ -72,3 +72,10 @@ def test_github_repo_resume_requires_private_origin(monkeypatch,tmp_path):
         raise AssertionError(args)
     monkeypatch.setattr(setup,"run",fake_run)
     assert setup.make_repo("tiktok-review-automation")==('owner/tiktok-review-automation','a'*40)
+
+
+def test_setup_source_allowlist_includes_current_runtime_and_docs():
+    for name in ('review_policy.py', 'telegram-control', 'integrations', 'docs',
+                 'requirements-relogin.txt', 'requirements-bigseller.txt', 'requirements-dev.txt'):
+        assert name in setup.STAGED
+    assert all((setup.ROOT / name).exists() for name in setup.STAGED)

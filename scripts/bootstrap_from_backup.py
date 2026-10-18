@@ -1,6 +1,6 @@
 """One-time local bootstrap from the original Windows ZIP.
 
-Only the reply-history CSV and the three session JSONs are read. They are
+Only the reply-history CSV and the configured shop session JSONs are read. They are
 NEVER added to the distribution or printed. The output encrypted file may be
 committed to the private `automation-state` branch, never to a public repo.
 """
@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 from cryptography.fernet import Fernet
-from scripts.bootstrap_state import SHOPS, validate, main as make_marker
+from scripts.bootstrap_state import SHOPS, validate
 from scripts.state_vault import pack
 
 SAFE_MAX = 2_000_000  # per zip member; protects against zip bombs and mistakes
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Private key file: {result['private_key_path']} (NEVER upload to GitHub or share in a chat)")
     print("Next: put the encrypted .enc file only on the PRIVATE automation-state GitHub branch, ")
     print("and copy the private key CONTENT into the GitHub Secret STATE_ENCRYPTION_KEY.")
-    print("These cookies could be expired; dry-run all 3 shops before enabling any real replies.")
+    print("These cookies could be expired; dry-run every configured shop before enabling real replies.")
     return 0
 
 

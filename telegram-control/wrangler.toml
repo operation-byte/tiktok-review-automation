@@ -1,6 +1,6 @@
 # Deploy config for the existing tiktok-review-control Worker; mirrors the live
 # bindings so a deploy changes code only. Secrets (BOT_TOKEN, GH_TOKEN, CONTROL_TOKEN,
-# WEBHOOK_SECRET) and dashboard vars (OWNER_ID, REPO, PUBLIC_URL, ORIGINAL_WEBHOOK)
+# WEBHOOK_SECRET) and dashboard vars (OWNER_ID, REPO, PUBLIC_URL)
 # stay in Cloudflare; keep_vars stops a deploy from wiping them.
 # Build pages.mjs first: npm ci && npm run build && npm test
 name = "tiktok-review-control"

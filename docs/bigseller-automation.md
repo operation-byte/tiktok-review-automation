@@ -21,6 +21,15 @@ The implemented flow is:
 7. The runner reports success only after a completed receipt matches the
    uploaded file's checksum and expected SKU row count.
 
+When a scheduled or manual export detects an expired session, Telegram sends a
+**Login to BigSeller** button. Tap it for the same private login flow. Unrelated
+export failures preserve the login-required flag until a verified login or export
+succeeds.
+
+Both services share the phone viewer: tap the remote screen to open the keyboard,
+use **Zoom** and **Pan** for larger controls, and use **Next field** and **Enter**
+above the keyboard. Turn Pan off before typing.
+
 ## One-time configuration
 
 Use different random secrets for the dashboard controller and import endpoint.
@@ -93,7 +102,8 @@ workflow; the downloader does not submit adjustments back into BigSeller.
 ## Verification
 
 ```sh
-python -m pytest tests --ignore=tests/test_cloud_v3.py -q
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 cd telegram-control
 npm ci --ignore-scripts
 npm run build

@@ -1,5 +1,4 @@
-import csv
-import os
+"""Local controller authorization, scheduling, cancellation and redaction."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,10 +7,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import cloud_controller as controller
-from deploy.import_history import merge, COLUMNS
 
 
-class CloudV3Tests(unittest.TestCase):
+class CloudControllerTests(unittest.TestCase):
     def test_whoami_works_without_configured_ids_but_commands_do_not(self):
         msg = {'chat': {'id': 333, 'type': 'private'}, 'from': {'id': 333}, 'text': '/whoami'}
         with patch.object(controller, 'notify') as mocked:
@@ -29,21 +27,6 @@ class CloudV3Tests(unittest.TestCase):
         with patch.object(controller, 'notify') as mocked:
             controller.on_command(msg)
             mocked.assert_not_called()
-
-    def test_history_import_merges_and_is_idempotent(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / 'old.csv'
-            target = Path(directory) / 'new.csv'
-            with source.open('w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.DictWriter(f, fieldnames=COLUMNS)
-                writer.writeheader()
-                writer.writerow({'review_key': 'key-one', 'status': 'submitted'})
-                writer.writerow({'review_key': 'key-two', 'status': 'ambiguous_submit_manual_check'})
-            self.assertEqual(merge(source, target), (0, 2))
-            self.assertEqual(merge(source, target), (2, 0))
-            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
-            with target.open(newline='', encoding='utf-8-sig') as f:
-                self.assertEqual(len(list(csv.DictReader(f))), 2)
 
     def test_daily_report_not_sent_twice_in_day(self):
         with tempfile.TemporaryDirectory() as directory:

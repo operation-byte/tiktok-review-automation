@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from google_sheet_sync import EXPECTED_HEADERS, GoogleSheetsAPI, SheetError, sync_csv
+from google_sheet_sync import EXPECTED_HEADERS, SheetError, sync_csv
 
 
 class FakeAPI:

@@ -1,30 +1,65 @@
-.env
-/data/
-*.pyc
-__pycache__/
-.venv/
-*.log
+# Operating system metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
 
+# Local credentials and configuration; examples may be versioned
+.env
+.env.*
+!.env.example
+!.env.*.example
+.dev.vars
+.dev.vars.*
+.envrc
+.direnv/
+*.private
+*.enc
+*.pem
+*.key
+.clasprc*.json
+google-service-account*.json
+service-account*.json
+*storage-state*.json
+.aws/
+.ssh/
 /secrets/
+
+# Python environments, bytecode, test and analysis caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Node dependencies, local Cloudflare state and bundled viewer output
+node_modules/
+.wrangler/
+/telegram-control/pages.mjs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Private automation sessions, customer data and generated diagnostics
+/data/
 /browser_profiles/
 /logs/
 /alerts/
 /reports/
 /observations/
 /state/
-/automation-state.enc
-/*.enc
-*.zip
-# One-time bootstrap secret: keep OUT of GitHub
-.state_key.private
-*.private
-
-/telegram-control/node_modules/
-/telegram-control/pages.mjs
-
-# BigSeller runner state, browser diagnostics and dependencies stay on the
-# ephemeral runner or the local Windows fallback; only source is versioned.
-/integrations/bigseller-export/node_modules/
 /integrations/bigseller-export/runtime/
-/integrations/bigseller-export/*.enc
-/integrations/bigseller-export/*.private
+playwright-report/
+test-results/
+*.log
+*.partial
+*.tmp
+
+# Original backups may contain customer data and browser sessions
+*.zip

@@ -6,9 +6,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-def notify(text):
+def notify(text, **kwargs):
     from scripts.notify_failure import send_notice
-    send_notice(text)
+    send_notice(text, **kwargs)
 
 
 def publish(status, **details):
@@ -25,3 +25,11 @@ def publish(status, **details):
             response.read()
     except Exception:
         print('BigSeller control summary could not be refreshed')
+
+
+def login_required(*, first_login=False):
+    publish('login required', login_needed=True)
+    reason = 'needs its first login' if first_login else 'needs you to log in again'
+    notify(f'⚠️ BigSeller {reason}. Tap Login to BigSeller below to open the private browser, '
+           'or use /bs_login. Log in, open Inventory List, then tap Save login. Stock was unchanged.',
+           reply_markup={'inline_keyboard': [[{'text': 'Login to BigSeller', 'callback_data': 'bs_login'}]]})

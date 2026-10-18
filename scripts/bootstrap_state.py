@@ -1,4 +1,4 @@
-"""Validate imported history + three saved shop sessions before permitting live replies."""
+"""Validate imported history + configured shop sessions before permitting live replies."""
 from __future__ import annotations
 
 import csv

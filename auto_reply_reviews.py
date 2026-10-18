@@ -207,7 +207,6 @@ def is_recent_review(
         return parsed >= since_date
     if recent_days <= 0:
         return True
-    today = today or datetime.now().astimezone().date()
     return parsed >= today - timedelta(days=recent_days)
 
 
@@ -292,13 +291,6 @@ def make_review_key(profile: str, queue_name: str, summary: dict[str, str]) -> s
     return f"{profile}|{queue_name}|hash:{content_digest}"
 
 
-def stable_review_key(review_key: str) -> str:
-    parts = (review_key or "").split("|")
-    if len(parts) >= 5 and not parts[2].startswith("hash:"):
-        return "|".join(parts[:4])
-    return review_key or ""
-
-
 def upgrade_legacy_review_key(row: dict[str, str]) -> str:
     review_key = row.get("review_key", "")
     parts = review_key.split("|")
@@ -325,16 +317,6 @@ def append_reply_log(path: Path, entry: ReplyLogEntry) -> None:
         if needs_header:
             writer.writeheader()
         writer.writerow(asdict(entry))
-
-
-def env_int(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-    if not value:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
 
 
 def profile_label(profile: str) -> str:
@@ -517,13 +499,6 @@ def detect_google_sheet_next_blank_row(*, request_context=None) -> int:
         if google_sheet_row_has_real_data(row):
             last_data_row = index
     return max(last_data_row + 1, 2)
-
-
-def google_sheet_contains_order_id(order_id: str, *, request_context=None) -> bool:
-    order_id = (order_id or "").strip()
-    if not order_id:
-        return False
-    return any(row and (row[0] or "").strip() == order_id for row in fetch_google_sheet_rows(request_context=request_context))
 
 
 def google_sheet_row_matches(target_row: int, expected_row: list[str], *, request_context=None) -> bool:
@@ -764,11 +739,6 @@ def load_logged_review_states(path: Path) -> dict[str, LoggedReviewState]:
     return states
 
 
-def load_logged_keys(path: Path) -> set[str]:
-    """Compatibility view of terminal identities; prefer status-aware loading."""
-    return set(load_logged_review_states(path))
-
-
 def iter_log_rows(path: Path) -> Iterable[dict[str, str]]:
     if not path.exists():
         return []
@@ -880,10 +850,6 @@ def profile_sequence(profile: str) -> list[str]:
     if profile not in PROFILES:
         raise ValueError(f"Unknown profile {profile}. Use all or one of: {', '.join(PROFILES)}")
     return [profile]
-
-
-def is_login_page(page) -> bool:
-    return "/account/login" in (page.url or "").lower()
 
 
 def cookie_jar_path(profile: str) -> Path:

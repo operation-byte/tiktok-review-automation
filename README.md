@@ -1,14 +1,16 @@
-# TikTok Seller Center daily review automation — GitHub + Telegram
+# TikTok reviews and BigSeller stock automation
 
-Start with **[START_HERE.md](START_HERE.md)**. On Windows, run `FINISH_SETUP_WINDOWS.cmd` for assisted no-card setup, including a private GitHub repository, secure encrypted historical state and outbound Telegram alerts.
+Runs TikTok Seller Center review checks and BigSeller stock exports on GitHub
+Actions, with private Telegram controls and a shared phone-compatible login
+viewer. Start with [setup and operation](START_HERE.md), or use the
+[deployment guide](DEPLOY_NOTES.md) to update an existing installation.
 
-- **Configured shops:** WELIVE and Snacker's Box, sequentially; Konomi Living excluded via `AUTOMATION_SHOPS`.
-- **Schedule:** enabled daily at 09:15 Asia/Singapore for the two configured shops.
+- **Shop selection:** `AUTOMATION_SHOPS` selects WELIVE (`welive_main`), Snacker's Box (`snackersbox`) and/or Konomi Living (`konomi_living`). Only selected shops run, sequentially.
+- **Schedule:** TikTok checks run daily at 09:15 Asia/Singapore when `AUTOMATION_ENABLED=true`; `ENABLE_SUBMIT` separately controls public replies.
 - **Method:** existing Playwright browser UI; no TikTok API.
 - **Google spreadsheet:** original `TikTok Negative Review KPI`, `Backend Data` tab (`gid=298261214`); authenticated browser CSV reads and browser row entry, with duplicate tracking preserved in encrypted state.
 - **Safeguards:** historical deduplication ledger, explicit submission flag, sensitive review holds, state restore failure blocks all checks, isolated worker timeouts, encrypted data transfer.
-- **Not possible without external authorization:** create your personal GitHub login, issue a new Telegram BotFather token, authorize a Google service account, or complete TikTok's interactive authentication. These require one-time actions in accounts controlled by you.
-- **Review eligibility:** original rolling 30-day window, no fixed start date. Only unreplied negative/neutral reviews are considered; historical submitted/ambiguous identities are preserved. The original backup history and review-level Sheet markers have been merged into encrypted state.
+- **Review eligibility:** original rolling 30-day window, no fixed start date. Only unreplied negative/neutral reviews are considered; historical reply identities, ambiguous attempts and Sheet markers are preserved in encrypted state.
 
 More context: `.github/workflows/{daily-reviews,check-setup}.yml`; `github_daily.py`; `scripts/finish_setup.py`.
 
@@ -42,10 +44,6 @@ public reply and each new Google Sheet row.
   column defaults. Previously posted replies and historical Sheet rows are not
   rewritten by a routing update.
 
-Run regression checks with `.venv/bin/python -m pytest tests --ignore=tests/test_cloud_v3.py -q`.
-The legacy `test_cloud_v3.py` currently cannot collect because its `deploy` module
-is absent from this repository.
-
 ## Telegram controls and relogin
 
 Send commands privately to `@Welivestockcount_bot` from the configured owner account.
@@ -54,7 +52,7 @@ The existing stock-count commands remain intact; review controls use `/tt_`:
 | Command | Action |
 |---|---|
 | `/tt_status` | Current GitHub jobs and last reported shop/login status |
-| `/tt_run` or `/tt_run welive_main` | Live check of both shops or the named shop |
+| `/tt_run` or `/tt_run welive_main` | Live check of configured shops or the named shop |
 | `/tt_dryrun` | Diagnose without public replies or Sheet writes |
 | `/tt_pause` | Pause future live review runs; let an active run finish safely |
 | `/tt_resume` | Restore daily 09:15 SGT runs; does not immediately post |
@@ -66,9 +64,11 @@ The existing stock-count commands remain intact; review controls use `/tt_`:
 | `/tt_help` | Command guide |
 
 Login links work on phone or computer. Allow a few minutes for the GitHub browser
-job to start, then open the private link. Tap a field in the remote screen; on
-mobile, use the masked text box and Send button to type into that field. Complete
-TikTok login/OTP directly in the browser, confirm the correct shop, and press
+job to start, then open the private link. On a phone, tap a field in the remote
+screen to open the keyboard and type directly. Use **Zoom** for readable text,
+**Pan** to move around the enlarged screen, and **Next field** or **Enter** to
+navigate. Turn Pan off to type; the keyboard button also shows or hides typing.
+Complete TikTok login/OTP directly in the browser, confirm the correct shop, and press
 Save login. The job checks the authenticated Product ratings page before saving
 the refreshed cookie jar into the latest encrypted state. Telegram confirms the
 save. Sessions expire 15 minutes after startup; an incomplete login leaves the
@@ -106,3 +106,52 @@ See [BigSeller activation and verification](docs/bigseller-automation.md) for th
 required deployment settings, four-times-daily schedule and first-login check.
 The Main Dashboard source changes must be deployed alongside this repo's Worker
 and workflows before these controls become available in the live dashboard.
+
+## Repository layout
+
+| Path | Responsibility |
+|---|---|
+| `auto_reply_reviews.py`, `review_policy.py`, `review_detection.py`, `queue_processor.py`, `reply_submission.py`, `tiktok_navigation.py` | Browser review flow, reply routing and submission checks |
+| `github_daily.py`, `cloud_controller.py`, `google_sheet_sync.py` | Hosted job orchestration, shared shop logic and optional Sheet API sync |
+| `scripts/` | Encrypted state, setup, login browsers and BigSeller import orchestration |
+| `telegram-control/` | Cloudflare Worker, bundled noVNC viewer and control tests |
+| `integrations/bigseller-export/` | Node/Playwright inventory exporter and Windows fallback scripts |
+| `integrations/main-dashboard/` | Patches and deployment notes for the separate Apps Script project |
+| `.github/workflows/`, `tests/` | Hosted jobs and offline Python regressions |
+
+`cloud_controller.py` also retains a standalone Telegram polling/scheduling entry
+point and `cloud_login.py` for privately hosted servers. GitHub Actions imports
+its job logic and uses the temporary Worker login viewer; it does not run the
+standalone poller. Do not run both schedulers for the same shops.
+
+## Development and tests
+
+Use Python 3.12+ and Node.js 22. Create a virtual environment and install the
+complete offline test dependencies:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+npm --prefix telegram-control ci --ignore-scripts
+npm --prefix telegram-control run build
+npm --prefix telegram-control test
+npm --prefix integrations/bigseller-export ci --ignore-scripts
+npm --prefix integrations/bigseller-export run check
+npm --prefix integrations/bigseller-export test
+git diff --check
+```
+
+On Windows, create the environment with `py -m venv .venv` and activate it with
+`.venv\Scripts\Activate.ps1`. Offline tests need no Chromium download, saved
+sessions, live account credentials or running cloud services. GitHub runs these
+checks in `tests.yml`. Actual login, phone keyboard behavior, review submissions
+and dashboard imports need separate supervised verification.
+
+`requirements-github.txt` installs review-job dependencies;
+`requirements-relogin.txt` adds the private-browser relay;
+`requirements-bigseller.txt` adds inventory-file validation;
+`requirements-dev.txt` adds pytest. Node lockfiles are committed; dependencies,
+Python caches, local Cloudflare files and generated `telegram-control/pages.mjs`
+are ignored. Rebuild the viewer after editing its source before deploying it.

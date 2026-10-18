@@ -1,7 +1,6 @@
 """Regression tests for non-destructive Sheet sync and reliable auth reminders."""
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from datetime import datetime
@@ -14,7 +13,7 @@ import google_sheet_sync as sheets
 from auto_reply_reviews import ReplyLogEntry, build_google_sheet_row
 
 
-class V5IntegrityTests(unittest.TestCase):
+class IntegrityTests(unittest.TestCase):
     def test_sheet_row_preserves_original_workflow_defaults(self):
         row = build_google_sheet_row(ReplyLogEntry(
             replied_at='2026-10-09T12:00:00+08:00', profile='welive_main',

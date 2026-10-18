@@ -18,7 +18,7 @@ import uuid
 
 import requests
 from scripts.bigseller_state import BigSellerStateStore, write_private
-from scripts.bigseller_control import notify, publish
+from scripts.bigseller_control import notify, publish, login_required
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_EXPORT_BYTES = 10 * 1024 * 1024
@@ -178,8 +178,7 @@ def main():
     store = BigSellerStateStore()
     state = store.fetch()
     if state is None:
-        publish('login required', login_needed=True)
-        notify('BigSeller needs its first login. Open Login to BigSeller in Warehouse or send /bs_login.')
+        login_required(first_login=True)
         return 10
     with tempfile.TemporaryDirectory(prefix='bigseller-') as directory:
         temporary = Path(directory)
@@ -193,8 +192,11 @@ def main():
         (temporary / 'incoming').mkdir()
         result = subprocess.run(['node', 'src/run.js'], cwd=ROOT / 'integrations/bigseller-export', env=env, timeout=16 * 60)
         if result.returncode:
-            publish('login required' if result.returncode == 10 else 'export failed', login_needed=result.returncode == 10)
-            notify('BigSeller export did not complete. ' + ('Use /bs_login to refresh login.' if result.returncode == 10 else 'Use /bs_status to inspect the failed job. Previous stock data was preserved.'))
+            if result.returncode == 10:
+                login_required()
+            else:
+                publish('export failed')
+                notify('BigSeller export did not complete. Use /bs_status to inspect the failed job. Previous stock data was preserved.')
             return result.returncode
         exported = json.loads(manifest.read_text())
         path = Path(exported['destination']).resolve()

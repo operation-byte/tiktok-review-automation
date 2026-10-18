@@ -1,12 +1,10 @@
-"""v7 local-only tests, no network calls or live TikTok sessions."""
+"""Bootstrap and browser-state tests, no network calls or live TikTok sessions."""
 from __future__ import annotations
 
 import csv
 import json
-import os
 import sys
 import types
-from pathlib import Path
 
 import pytest
 from cryptography.fernet import Fernet

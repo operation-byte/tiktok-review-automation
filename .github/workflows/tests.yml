@@ -1,0 +1,48 @@
+name: Offline regression tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements-github.txt
+            requirements-relogin.txt
+            requirements-bigseller.txt
+            requirements-dev.txt
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            telegram-control/package-lock.json
+            integrations/bigseller-export/package-lock.json
+      - name: Python regressions
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest -q
+      - name: Build and test Telegram control
+        working-directory: telegram-control
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npm test
+      - name: Check and test BigSeller exporter
+        working-directory: integrations/bigseller-export
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+          npm test

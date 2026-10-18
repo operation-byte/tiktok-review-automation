@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import json
 
 from cryptography.fernet import Fernet
 import pytest
@@ -182,3 +181,33 @@ def test_refresh_failure_reports_committed_stock_without_reimport(monkeypatch, t
     with pytest.raises(RuntimeError, match='Stock was imported, but Procurement refresh failed: Protected cell'):
         importer.import_file(path, 4)
     assert calls == ['upload', 'import']
+
+
+def test_login_expiry_sends_private_browser_button(monkeypatch):
+    from scripts import bigseller_control as control
+    sent, reports = [], []
+    monkeypatch.setattr(control, 'publish', lambda *args, **kw: reports.append((args, kw)))
+    monkeypatch.setattr(control, 'notify', lambda *args, **kw: sent.append((args, kw)))
+    control.login_required()
+    assert reports == [(('login required',), {'login_needed': True})]
+    assert sent[0][1]['reply_markup']['inline_keyboard'][0][0]['callback_data'] == 'bs_login'
+    assert 'again' in sent[0][0][0]
+
+
+@pytest.mark.parametrize('saved_state,exit_code,expected', [(None, None, True), ({'cookies': [], 'origins': []}, 10, True), ({'cookies': [], 'origins': []}, 20, False)])
+def test_sync_routes_missing_and_expired_sessions_to_login(monkeypatch, saved_state, exit_code, expected):
+    from scripts import bigseller_sync as sync
+    from types import SimpleNamespace
+    monkeypatch.setenv('BIGSELLER_DRY_RUN', 'true')
+    monkeypatch.setattr(sync, 'BigSellerStateStore', lambda: SimpleNamespace(fetch=lambda: saved_state))
+    monkeypatch.setattr(sync.subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=exit_code))
+    calls, reports = [], []
+    monkeypatch.setattr(sync, 'login_required', lambda **kw: calls.append(kw))
+    monkeypatch.setattr(sync, 'publish', lambda *a, **kw: reports.append(kw))
+    monkeypatch.setattr(sync, 'notify', lambda *a, **kw: None)
+    assert sync.main() == (10 if saved_state is None else exit_code)
+    assert bool(calls) is expected
+    if saved_state is None:
+        assert calls == [{'first_login': True}]
+    if exit_code == 20:
+        assert reports == [{}]  # Generic failures cannot clear an expired login.

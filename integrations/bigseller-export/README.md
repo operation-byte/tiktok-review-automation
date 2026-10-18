@@ -2,7 +2,7 @@
 
 This is the source-only Node/Playwright integration for the BigSeller Single SKU export. It opens BigSeller, selects **Single SKU**, chooses **Export All**, waits for the generated download, validates the file, and places a checksum-verified copy in a local staging directory.
 
-The hosted GitHub Actions workflow supplies `BIGSELLER_STATE_FILE` and `BIGSELLER_SAVE_STATE_FILE` for an encrypted BigSeller Playwright `storageState` file. It sets `BIGSELLER_CLOUD_MODE=1` and points `BIGSELLER_INCOMING_DIR` at an ephemeral runner directory. The parent workflow uploads the validated destination file to the Main Dashboard Incoming folder and then asks the signed Apps Script endpoint to import it.
+The hosted GitHub Actions workflow supplies `BIGSELLER_STATE_FILE` and `BIGSELLER_SAVE_STATE_FILE` for an encrypted BigSeller Playwright `storageState` file. The presence of the state file enables cloud mode (or set `BIGSELLER_CLOUD_MODE=1` explicitly), and the workflow points `BIGSELLER_INCOMING_DIR` at an ephemeral runner directory. The parent workflow uploads the validated destination file to the Main Dashboard Incoming folder and then asks the signed Apps Script endpoint to import it.
 
 For the Windows fallback, omit `BIGSELLER_STATE_FILE` and `BIGSELLER_CLOUD_MODE`, run `scripts\install.cmd`, then `scripts\setup-login.cmd`. The optional `scripts\install-scheduled-task.ps1` installs the original 00:00/06:00/12:00/18:00 local schedule. The mapped Google Drive Incoming directory comes from `BIGSELLER_INCOMING_DIR` or the default configured in `src/config.js`.
 
