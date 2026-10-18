@@ -42,6 +42,7 @@ class DashboardQueueState:
 class OpenQueueResult:
     queue_name: str
     attempts: int
+    empty: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,11 @@ def open_review_queue(
                             # The dashboard periodically rerenders and may
                             # detach the marked node. Re-probe on the next poll.
                             continue
+                    # Empty queues do not always render a Reply now action.
+                    # The dashboard count is still authoritative, so finish
+                    # this queue without trying to click a missing target.
+                    if expected_count == 0:
+                        return OpenQueueResult(name, attempt, empty=True)
                     if (clicked is True or marker) and _wait_for_dashboard_queue_results(
                         page,
                         label,
@@ -274,6 +280,9 @@ _CLICK_QUEUE_SCRIPT = r"""
     return null;
   };
   const expectedCount = queueCount();
+  // TikTok can hide Reply now when this queue is empty. Return the count so
+  // the caller can verify the empty result without requiring a click target.
+  if (expectedCount === 0) return {route: 'dashboard', expected_count: 0, marker: null};
   const otherLabel = label === 'Negative reviews' ? 'Neutral reviews' : 'Negative reviews';
   for (const heading of Array.from(document.querySelectorAll('body *')).filter(el => visible(el) && compact(el.textContent) === label)) {
     let card = heading;

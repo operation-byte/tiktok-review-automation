@@ -1054,10 +1054,10 @@ def raise_if_queue_login_required(profile: str, result) -> None:
         raise LoginRequiredError(result.reason or f"{profile} TikTok login is required")
 
 
-def open_authoritative_queue(page, profile: str, queue: ReviewQueue) -> None:
-    """Enter a queue only through its dashboard Reply now action and validate it."""
+def open_authoritative_queue(page, profile: str, queue: ReviewQueue) -> bool:
+    """Enter and validate a queue; return True when the dashboard says it is empty."""
     for attempt in range(1, 4):
-        open_review_queue(
+        opened = open_review_queue(
             page,
             queue,
             target_url=f"{PRODUCT_RATING_BASE_URL}?shop_region={SELLER_REGION}",
@@ -1065,6 +1065,8 @@ def open_authoritative_queue(page, profile: str, queue: ReviewQueue) -> None:
             polls_per_attempt=15,
             poll_interval_ms=1000,
         )
+        if opened.empty:
+            return True
         observed = wait_for_settled_scan(
             page,
             profile,
@@ -1074,13 +1076,13 @@ def open_authoritative_queue(page, profile: str, queue: ReviewQueue) -> None:
             stable_observations=2,
         )
         if observed.state is PageState.LOADED_EMPTY:
-            return
+            return True
         if (
             observed.state is PageState.LOADED_WITH_ROWS
             and observed.cards
             and all(card.rating is not None and is_expected_queue_rating(card, queue) for card in observed.cards)
         ):
-            return
+            return False
         if attempt < 3:
             ratings = sorted({card.rating for card in observed.cards}, key=lambda value: (value is None, value or 0))
             print(
@@ -1097,7 +1099,13 @@ def process_queue(page, profile: str, queue: ReviewQueue, args, log_path: Path) 
     """Exhaust one queue, failing closed when detection or verification is uncertain."""
     since_date = parse_iso_date(args.since_date)
     print(f"[{profile}] Opening {queue.name} queue.")
-    open_authoritative_queue(page, profile, queue)
+    if open_authoritative_queue(page, profile, queue):
+        print(
+            f"[{profile}] {queue.name}: outcome=complete submitted=0 skipped_old=0 "
+            "skipped_logged=0 held_manual=0 dry_run=0 manual_check=0 failed=0 "
+            "remaining=0 dashboard_count=0"
+        )
+        return 0
 
     logged_states = load_logged_review_states(log_path)
     manually_logged: set[str] = set()
