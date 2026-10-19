@@ -160,6 +160,8 @@ def open_review_queue(
     if max_attempts < 1 or polls_per_attempt < 1:
         raise ValueError("navigation bounds must be positive")
     label = "Negative reviews" if name == "negative" else "Neutral reviews"
+    # Last observation across all attempts, reported only when the queue fails.
+    observed = {"step": "queue_card_not_found", "expected_count": None, "marker": False, "click_error": None}
     for attempt in range(1, max_attempts + 1):
         try:
             if target_url is not None:
@@ -167,31 +169,37 @@ def open_review_queue(
             _assert_authenticated(page)
             for poll in range(polls_per_attempt):
                 clicked = page.evaluate(_CLICK_QUEUE_SCRIPT, label)
+                expected_count = clicked.get("expected_count") if isinstance(clicked, dict) else None
+                marker = clicked.get("marker") if isinstance(clicked, dict) else None
+                observed.update(step="queue_card_not_found", expected_count=expected_count, marker=bool(marker), click_error=None)
                 if clicked:
-                    expected_count = clicked.get("expected_count") if isinstance(clicked, dict) else None
-                    marker = clicked.get("marker") if isinstance(clicked, dict) else None
                     if marker:
                         try:
                             action = page.locator(f'[data-codex-queue-action="{marker}"]')
                             action.scroll_into_view_if_needed(timeout=15_000)
                             action.click(timeout=15_000)
-                        except Exception:
+                        except Exception as exc:
                             # The dashboard periodically rerenders and may
                             # detach the marked node. Re-probe on the next poll.
+                            observed.update(step="click_failed", click_error=type(exc).__name__)
                             continue
                     # Empty queues do not always render a Reply now action.
                     # The dashboard count is still authoritative, so finish
                     # this queue without trying to click a missing target.
                     if expected_count == 0:
                         return OpenQueueResult(name, attempt, empty=True)
-                    if (clicked is True or marker) and _wait_for_dashboard_queue_results(
-                        page,
-                        label,
-                        expected_count=expected_count,
-                        max_polls=max(8, polls_per_attempt),
-                        poll_interval_ms=poll_interval_ms,
-                    ):
-                        return OpenQueueResult(name, attempt)
+                    if clicked is True or marker:
+                        if _wait_for_dashboard_queue_results(
+                            page,
+                            label,
+                            expected_count=expected_count,
+                            max_polls=max(8, polls_per_attempt),
+                            poll_interval_ms=poll_interval_ms,
+                        ):
+                            return OpenQueueResult(name, attempt)
+                        observed["step"] = "results_not_settled"
+                    else:
+                        observed["step"] = "reply_action_missing"
                 _assert_authenticated(page)
                 if poll + 1 < polls_per_attempt:
                     page.wait_for_timeout(poll_interval_ms)
@@ -203,13 +211,35 @@ def open_review_queue(
             if _is_closed_error(exc):
                 raise BrowserClosedError(str(exc)) from exc
             if attempt >= max_attempts:
-                raise NavigationError(f"could not open {name} review queue: {exc}") from exc
+                raise NavigationError(f"could not open {name} review queue: {exc}{_queue_failure_detail(page, label, observed)}") from exc
             try:
                 page.reload(wait_until="domcontentloaded", timeout=60_000)
             except Exception as reload_exc:
                 if _is_closed_error(reload_exc):
                     raise BrowserClosedError(str(reload_exc)) from reload_exc
-    raise NavigationError(f"could not open {name} review queue after {max_attempts} attempts")
+    raise NavigationError(f"could not open {name} review queue after {max_attempts} attempts{_queue_failure_detail(page, label, observed)}")
+
+
+def _queue_failure_detail(page, label: str, observed: dict) -> str:
+    """Summarize why the queue did not open using only counts and fixed labels."""
+    try:
+        diagnostic = page.evaluate(_QUEUE_DIAGNOSTIC_SCRIPT, {"label": label})
+    except Exception:
+        diagnostic = None
+    if not isinstance(diagnostic, dict):
+        diagnostic = {}
+    parts = [
+        f"last step={observed['step']}",
+        f"expected_count={observed['expected_count']}",
+        f"marker={'yes' if observed['marker'] else 'no'}",
+        f"click_error={observed['click_error'] or 'none'}",
+        f"card_found={'yes' if diagnostic.get('queue_card_found') else 'no'}",
+        f"reply_now={diagnostic.get('reply_now_count')}",
+        f"ratings_headings={diagnostic.get('ratings_headings') or []}",
+        f"rows={diagnostic.get('row_count')}",
+        f"stars={diagnostic.get('row_star_counts') or []}",
+    ]
+    return " (" + " ".join(parts) + ")"
 
 
 def _wait_for_dashboard_queue_results(
@@ -416,6 +446,32 @@ _QUEUE_RESULTS_SETTLED_SCRIPT = r"""
     }
   }
   return false;
+}
+"""
+
+_QUEUE_DIAGNOSTIC_SCRIPT = r"""
+(request) => {
+  const label = request.label;
+  const compact = value => (value || '').replace(/\s+/g, ' ').trim();
+  const visible = el => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const elements = Array.from(document.querySelectorAll('body *')).filter(visible);
+  const texts = elements.map(el => compact(el.textContent));
+  const rows = Array.from(document.querySelectorAll('[class*="ratingListItem"], [data-e2e*="rating"], [data-e2e*="review"]'))
+    .filter(el => visible(el));
+  const starCounts = new Set(rows.map(row => row.querySelectorAll('[class*="ratingStar"] [class*="activeStar"]').length));
+  const headings = new Set(texts.filter(text => /^\d+\s+Ratings?$/i.test(text)));
+  return {
+    queue_card_found: texts.some(text => text === label),
+    reply_now_count: texts.filter(text => /^Reply now(?:\s|›|>|$)/i.test(text)).length,
+    ratings_headings: Array.from(headings).slice(0, 5),
+    row_count: rows.length,
+    row_star_counts: Array.from(starCounts).sort((a, b) => a - b),
+    path: location.pathname,
+  };
 }
 """
 

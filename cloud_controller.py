@@ -187,13 +187,15 @@ def tail_summary(path: Path) -> str:
             rows.append("Login required — refresh this shop session and the encrypted state snapshot")
         elif "PROFILE LAUNCH FAILED:" in line:
             rows.append("Browser profile could not launch")
-        elif "queue incomplete:" in line:
-            rows.append("Review queue incomplete — inspect private logs")
         elif incomplete := re.search(r"\] PROFILE INCOMPLETE: (.*)", line):
             # Surface the error class and message so failures are diagnosable
-            # without the runner log; mask long digit runs such as order IDs.
-            detail = re.sub(r"\d{6,}", "<id>", incomplete.group(1))
-            rows.append("Stopped: " + (detail[:180] + "…" if len(detail) > 180 else detail))
+            # without the runner log; drop local diagnostic paths and mask long
+            # digit runs such as order IDs.
+            detail = re.sub(r"\s+diagnostics=.*$", "", incomplete.group(1))
+            detail = re.sub(r"\d{6,}", "<id>", detail)
+            rows.append("Stopped: " + (detail[:400] + "…" if len(detail) > 400 else detail))
+        elif "queue incomplete:" in line:
+            rows.append("Review queue incomplete — inspect private logs")
     return "\n".join(rows[-6:]) or "No structured summary; see private server logs"
 
 

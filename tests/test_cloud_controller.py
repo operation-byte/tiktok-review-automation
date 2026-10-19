@@ -1,4 +1,5 @@
 """Local controller authorization, scheduling, cancellation and redaction."""
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,6 +75,15 @@ class CloudControllerTests(unittest.TestCase):
             summary = controller.tail_summary(source)
             self.assertIn('Stopped: NavigationError: could not open neutral review queue', summary)
             self.assertNotIn('577123456789', summary)
+
+    def test_log_summary_keeps_queue_reason_and_drops_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'raw.log'
+            source.write_text('[snackersbox] PROFILE INCOMPLETE: RuntimeError: snackersbox negative queue incomplete: review requires manual verification before processing diagnostics=debug/x.png\n')
+            summary = controller.tail_summary(source)
+            self.assertEqual(summary, 'Stopped: RuntimeError: snackersbox negative queue incomplete: review requires manual verification before processing')
+            self.assertNotIn('diagnostics', summary)
+            self.assertIsNone(re.search(r'\d{6,}', summary))
 
 
 if __name__ == '__main__':
