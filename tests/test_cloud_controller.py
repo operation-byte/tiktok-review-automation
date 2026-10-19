@@ -86,5 +86,25 @@ class CloudControllerTests(unittest.TestCase):
             self.assertIsNone(re.search(r'\d{6,}', summary))
 
 
+    def test_cloud_runs_real_windowed_chrome_when_headless_is_off(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(controller, 'LOG_DIR', Path(directory)), \
+                patch.object(controller, 'save_state'), patch.object(controller, 'notify'), \
+                patch.object(controller, 'execute', side_effect=lambda args, timeout, logfile: (logfile.write_text(''), (0, False))[1]) as execute:
+            for headless, expected, absent in ((False, '--browser-window-state', '--headless'),
+                                               (True, '--headless', '--browser-window-state')):
+                with patch.object(controller, 'BROWSER_HEADLESS', headless):
+                    controller.run_shop('snackersbox', force_dry=True)
+                args = execute.call_args.args[0]
+                self.assertIn(expected, args)
+                self.assertNotIn(absent, args)
+
+    def test_github_workflow_uses_chrome_on_virtual_display(self):
+        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/daily-reviews.yml').read_text()
+        self.assertIn('BROWSER_CHANNEL: chrome', workflow)
+        self.assertIn('BROWSER_HEADLESS: "false"', workflow)
+        self.assertIn('xvfb-run -a', workflow)
+
+
 if __name__ == '__main__':
     unittest.main()

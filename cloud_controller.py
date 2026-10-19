@@ -42,6 +42,7 @@ REPORT_HOUR = int(os.getenv("DAILY_REPORT_HOUR", "22"))
 REPORT_MINUTE = int(os.getenv("DAILY_REPORT_MINUTE", "5"))
 LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "30"))
 SHEETS_MODE = os.getenv("GOOGLE_SHEETS_MODE", "off").lower()
+BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").strip().lower() != "false"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("cloud_controller")
@@ -224,7 +225,15 @@ def run_shop(shop: str, *, force_dry: bool = False, login: bool = False) -> None
         notify(f"Login browser started for {shop}. Connect to the private noVNC screen via the SSH tunnel and complete TikTok login within {LOGIN_TIMEOUT // 60} minutes. Do not send passwords or OTPs here.")
     else:
         sheets_flag = "--google-sheets" if SHEETS_MODE == "browser" and SUBMIT_ENABLED and not force_dry else "--no-google-sheets"
-        args = ["auto_reply_reviews.py", "--profile", shop, "--headless", sheets_flag, "--log-path", "logs/replied_reviews.csv"]
+        args = ["auto_reply_reviews.py", "--profile", shop, sheets_flag, "--log-path", "logs/replied_reviews.csv"]
+        # GitHub runs real Chrome in a window on a virtual display, like the
+        # Windows PC did; TikTok's dashboard misbehaves in headless Chromium.
+        if BROWSER_HEADLESS:
+            args.append("--headless")
+        else:
+            # Nobody watches the virtual display, so use the full 1920x1080 screen
+            # rather than a minimized window that Chrome may stop rendering.
+            args.extend(["--browser-window-state", "maximized"])
         args.extend(["--recent-days", "30"])
         if force_dry or not SUBMIT_ENABLED:
             args.append("--dry-run")

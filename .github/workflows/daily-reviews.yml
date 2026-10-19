@@ -40,6 +40,8 @@ jobs:
       AUTOMATION_ENABLED: ${{ vars.AUTOMATION_ENABLED }}
       AUTOMATION_SHOPS: ${{ vars.AUTOMATION_SHOPS || 'welive_main,snackersbox,konomi_living' }}
       ENABLE_SUBMIT: ${{ vars.ENABLE_SUBMIT }}
+      BROWSER_CHANNEL: chrome
+      BROWSER_HEADLESS: "false"
       GOOGLE_SHEETS_MODE: ${{ vars.GOOGLE_SHEETS_MODE }}
       GOOGLE_SHEET_ID: 1Q_8FRZBSRmuL6ncKshjME1JccLWU0XaMvSCVspwvHKs
       GOOGLE_SHEET_TAB: Backend Data
@@ -52,14 +54,14 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements-github.txt
-      - name: Install Python packages and headless Chromium
+      - name: Install Python packages, Google Chrome and virtual display
         run: |
           python -m pip install -r requirements-github.txt
-          # Download the headless shell while apt installs system libraries.
-          python -m playwright install --only-shell chromium &
-          browser=$!
-          python -m playwright install-deps chromium
-          wait "$browser"
+          # Same browser as the Windows PC: real Chrome in a window. The runner
+          # image ships Chrome and Xvfb; install them only if they are missing.
+          command -v google-chrome >/dev/null || python -m playwright install --with-deps chrome
+          command -v xvfb-run >/dev/null || sudo apt-get install -y --no-install-recommends xvfb
+          google-chrome --version
       - name: Prepare private Google credentials
         shell: bash
         run: |
@@ -71,7 +73,7 @@ jobs:
           fi
       - name: Run selected shops in parallel
         id: run_reviews
-        run: python github_daily.py
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" python github_daily.py
       - name: Alert when runner failed before reporting
         if: failure() || cancelled()
         run: python scripts/notify_failure.py
