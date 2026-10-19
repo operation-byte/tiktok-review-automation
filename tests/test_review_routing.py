@@ -68,7 +68,7 @@ def test_incidental_words_do_not_trigger_serious_hold(text):
     'I cut myself with the sharp aluminium', 'Not halal',
     'Good delivery. ' * 30 + 'Found mould inside the packet'])
 def test_serious_concerns_are_recognised_even_late_in_review(text, monkeypatch):
-    monkeypatch.delenv('AUTO_SUBMIT_HIGH_RISK', raising=False)
+    monkeypatch.setenv('AUTO_SUBMIT_HIGH_RISK', 'false')
     result = decision(text)
     assert result.category == 'Serious Concern / Escalation'
     assert not result.auto_submit
@@ -172,3 +172,34 @@ def test_unknown_response_count_requires_inspection():
 ])
 def test_praise_does_not_hide_concern_in_same_sentence(text, category):
     assert decision(text).category == category
+
+
+def _old_queue(dashboard):
+    from queue_processor import process_paginated_queue, ItemDecision, ItemAction
+    from review_detection import ReviewCard, PageScan, PageState
+    cards = tuple(ReviewCard(f'k{i}', f'o{i}', 'u', 'p', 'Biscuits', 'meh', '2026-01-01', 3, 0, True, '')
+                  for i in range(5))
+    return process_paginated_queue(
+        lambda: PageScan(PageState.LOADED_WITH_ROWS, cards),
+        lambda card: ItemDecision(ItemAction.SKIP_OLD),
+        lambda card, text: None,
+        advance_page=lambda: False,
+        dashboard_count=lambda: dashboard,
+    )
+
+
+def test_dashboard_lagging_below_the_list_still_completes():
+    # Seen live: dashboard 104 while the list still showed 105 old reviews.
+    assert _old_queue(4).outcome.value == 'complete'
+    assert _old_queue(5).outcome.value == 'complete'
+
+
+def test_dashboard_above_accounted_reviews_stays_incomplete():
+    assert _old_queue(6).outcome.value == 'incomplete'
+
+
+def test_reply_lookup_and_queue_count_tolerate_known_tiktok_drift():
+    from reply_submission import _OPEN_EDITOR_SCRIPT
+    from tiktok_navigation import _QUEUE_RESULTS_SETTLED_SCRIPT
+    assert 'el.contains(other)' in _OPEN_EDITOR_SCRIPT
+    assert 'tolerance' in _QUEUE_RESULTS_SETTLED_SCRIPT

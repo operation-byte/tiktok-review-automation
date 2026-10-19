@@ -24,7 +24,16 @@ class CloudPortTests(unittest.TestCase):
         self.assertFalse(reply.auto_submit)
         self.assertEqual(reply.status, "needs_manual_review_high_risk")
 
-    def test_high_risk_logged_review_is_held_on_subsequent_runs(self):
+    def test_high_risk_reviews_get_escalation_reply_by_default(self):
+        args = SimpleNamespace(reply_mode="manual_logic", negative_reply_text="negative", neutral_reply_text="neutral")
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AUTO_SUBMIT_HIGH_RISK", None)
+            reply = reviews.select_reply_decision(reviews.REVIEW_QUEUES["negative"],
+                                                  {"review_text": "fake", "product": "Biscuits"}, args)
+        self.assertTrue(reply.auto_submit)
+        self.assertEqual(reply.reply_text, reviews.SERIOUS_CONCERN_REPLY_TEXT)
+
+    def test_previously_held_high_risk_review_is_retried(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "replies.csv"
             with path.open("w", encoding="utf-8-sig", newline="") as fp:
@@ -32,7 +41,7 @@ class CloudPortTests(unittest.TestCase):
                 writer.writeheader()
                 writer.writerow({"review_key": "review-one", "status": "needs_manual_review_high_risk"})
             result = reviews.load_logged_review_states(path)
-            self.assertEqual(result["review-one"], reviews.LoggedReviewState.HOLD_MANUAL)
+            self.assertNotIn("review-one", result)
 
     def test_telegram_summary_redacts_customer_details(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -78,7 +78,6 @@ AUTO_REPLY_TERMINAL_STATUSES = {
     "ambiguous",
     "ambiguous_submit_manual_check",
     "needs_manual_review_missing_date",
-    "needs_manual_review_high_risk",
 }
 
 # This cloud version uses isolated browser profiles under a persistent Docker volume.
@@ -363,12 +362,15 @@ def select_reply_decision(queue: ReviewQueue, summary: dict[str, str], args) -> 
         )
 
     if has_high_risk_review_marker(review_text):
+        # Same as the original Windows bot: answer serious concerns with the
+        # escalation reply. Set AUTO_SUBMIT_HIGH_RISK=false to hold them instead.
+        auto_submit = os.getenv("AUTO_SUBMIT_HIGH_RISK", "true").lower() != "false"
         return ReplyDecision(
             reply_text=SERIOUS_CONCERN_REPLY_TEXT,
             category="Serious Concern / Escalation",
             template_name="serious_concern",
-            auto_submit=os.getenv("AUTO_SUBMIT_HIGH_RISK", "false").lower() == "true",
-            status="needs_manual_review_high_risk",
+            auto_submit=auto_submit,
+            status="ready" if auto_submit else "needs_manual_review_high_risk",
         )
 
     category = classify_review_category(review_text, product)

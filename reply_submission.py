@@ -43,8 +43,13 @@ def submit_reply(
 ) -> SubmissionResult:
     """Reply to *card*, returning SUBMITTED only with positive UI evidence."""
     try:
-        if not _open_editor_for_identity(page, card):
-            return SubmissionResult(SubmissionOutcome.NOT_FOUND, "stable review identity was not uniquely actionable")
+        opened = _open_editor_for_identity(page, card)
+        if opened is not True:
+            detail = ""
+            if isinstance(opened, dict):
+                detail = (f" (reply controls on page={opened.get('reply_controls')}, "
+                          f"matching this review={opened.get('matching_rows')})")
+            return SubmissionResult(SubmissionOutcome.NOT_FOUND, "stable review identity was not uniquely actionable" + detail)
         if not _fill_editor(page, reply_text):
             return SubmissionResult(SubmissionOutcome.FAILED, "visible reply editor was not available")
         if not submit:
@@ -120,14 +125,16 @@ def _result_from_rescan(before: ReviewCard, scan: PageScan) -> SubmissionResult:
     return SubmissionResult(SubmissionOutcome.AMBIGUOUS, "submit clicked but target remained actionable and unchanged")
 
 
-def _open_editor_for_identity(page, card: ReviewCard) -> bool:
-    return bool(page.evaluate(_OPEN_EDITOR_SCRIPT, {
+def _open_editor_for_identity(page, card: ReviewCard) -> bool | dict:
+    """True when the editor was opened, else the script's match counts."""
+    result = page.evaluate(_OPEN_EDITOR_SCRIPT, {
         "order_id": card.order_id,
         "username": card.username,
         "product_id": card.product_id,
         "product": card.product,
         "review_text": card.review_text,
-    }))
+    })
+    return result if isinstance(result, dict) else bool(result)
 
 
 def _fill_editor(page, text: str) -> bool:
@@ -209,8 +216,11 @@ _OPEN_EDITOR_SCRIPT = r"""
       break;
     }
   }
-  const unique = [...new Set(matches)];
-  if (unique.length !== 1) return false;
+  // A nested span inherits cursor:pointer from its clickable parent, so one
+  // Reply control can match twice. Keep the innermost element; its click
+  // bubbles to the parent's handler.
+  const unique = [...new Set(matches)].filter(el => !matches.some(other => other !== el && el.contains(other)));
+  if (unique.length !== 1) return {clicked: false, reply_controls: actions.length, matching_rows: unique.length};
   unique[0].scrollIntoView({block: 'center', inline: 'center'});
   unique[0].click();
   return true;

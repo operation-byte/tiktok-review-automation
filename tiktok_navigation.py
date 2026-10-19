@@ -415,9 +415,18 @@ _QUEUE_RESULTS_SETTLED_SCRIPT = r"""
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   };
   if (Number.isFinite(requestedCount)) {
-    const countSettled = Array.from(document.querySelectorAll('body *')).some(el =>
-      visible(el) && new RegExp(`^${requestedCount}\\s+Ratings?$`, 'i').test(compact(el.textContent))
-    );
+    // The dashboard count lags the list when a review was just answered (seen:
+    // dashboard 104, list "105 Ratings"). Accept a small drift; the star check
+    // below proves the right queue loaded and the final dashboard
+    // reconciliation still catches anything left unprocessed.
+    const tolerance = Math.max(3, Math.ceil(requestedCount * 0.05));
+    const countSettled = Array.from(document.querySelectorAll('body *')).some(el => {
+      if (!visible(el)) return false;
+      const heading = compact(el.textContent).match(/^(\d+)\s+Ratings?$/i);
+      if (!heading) return false;
+      const shown = Number(heading[1]);
+      return requestedCount === 0 ? shown === 0 : Math.abs(shown - requestedCount) <= tolerance;
+    });
     if (!countSettled) return false;
     if (requestedCount === 0) return true;
     const allowed = label === 'Negative reviews' ? new Set([1, 2]) : new Set([3]);

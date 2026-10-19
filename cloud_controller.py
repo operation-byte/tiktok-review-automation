@@ -97,6 +97,10 @@ def telegram(method: str, values: dict, timeout: int = 35) -> dict:
 
 
 def notify(message: str, chat_id: str | int | None = None) -> None:
+    # Messages are already redacted for Telegram; mirror them into the private
+    # Actions log so a run can be diagnosed from GitHub alone.
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        log.info("Telegram notice: %s", message)
     dest = chat_id or ALERT_CHAT_ID or state.get("subscriber")
     if not dest and len(ALLOWED) == 1:
         dest = str(next(iter(ALLOWED)))

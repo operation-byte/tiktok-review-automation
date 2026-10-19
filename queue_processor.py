@@ -221,14 +221,16 @@ def process_paginated_queue(scan: Callable[[], PageScan], decide: Callable[[Revi
     explainable = len(explainable_keys)
     for attempt in range(max(1, dashboard_retries) if dashboard_count else 0):
         advertised = dashboard_count()
-        if advertised == 0 or advertised == explainable:
+        # A dashboard that lags lower than the list hides nothing; only a
+        # count above the accounted-for items means reviews were missed.
+        if advertised is not None and advertised <= explainable:
             break
         if attempt + 1 < dashboard_retries and dashboard_wait:
             dashboard_wait()
     if dashboard_count and advertised is None:
         return _result(progress, QueueOutcome.INCOMPLETE, "dashboard count unavailable for reconciliation",
                        remaining=1, notes=("dashboard_count_unavailable",))
-    if advertised is not None and advertised != 0 and advertised != explainable:
+    if advertised is not None and advertised > explainable:
         note = (f"dashboard {queue_name or 'queue'} count {advertised} exceeds "
                 f"{explainable} known old/manual items")
         return _result(progress, QueueOutcome.INCOMPLETE, "dashboard count could not be reconciled",
