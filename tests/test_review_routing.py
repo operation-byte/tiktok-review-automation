@@ -203,3 +203,45 @@ def test_reply_lookup_and_queue_count_tolerate_known_tiktok_drift():
     from tiktok_navigation import _QUEUE_RESULTS_SETTLED_SCRIPT
     assert 'el.contains(other)' in _OPEN_EDITOR_SCRIPT
     assert 'tolerance' in _QUEUE_RESULTS_SETTLED_SCRIPT
+
+
+def _paged_queue(pages, *, max_pages=None, repeat_page=False):
+    from queue_processor import process_paginated_queue, ItemDecision, ItemAction
+    from review_detection import ReviewCard, PageScan, PageState
+    state = {'page': 0}
+
+    def cards_for(index):
+        return tuple(ReviewCard(f'p{index}-k{i}', f'o{index}{i}', 'u', 'p', 'Biscuits', 'meh',
+                                '2026-01-01', 3, 0, True, '') for i in range(3))
+
+    def scan():
+        return PageScan(PageState.LOADED_WITH_ROWS, cards_for(0 if repeat_page else state['page']))
+
+    def advance():
+        if state['page'] + 1 >= pages:
+            return False
+        state['page'] += 1
+        return True
+
+    kwargs = {} if max_pages is None else {'max_pages': max_pages}
+    return process_paginated_queue(scan, lambda card: ItemDecision(ItemAction.HOLD_MANUAL),
+                                   lambda card, text: None, advance_page=advance, **kwargs)
+
+
+def test_deep_backlog_beyond_old_twenty_page_cap_reaches_end():
+    # ~880 held reviews spread over more than 20 pages must still finish cleanly.
+    result = _paged_queue(pages=45)
+    assert result.outcome.value == 'complete'
+    assert result.held_manual == 45 * 3
+
+
+def test_page_budget_is_still_enforced():
+    result = _paged_queue(pages=45, max_pages=10)
+    assert result.outcome.value == 'incomplete'
+    assert 'safety cap reached after 10 pages' in result.reason
+
+
+def test_next_page_returning_same_reviews_is_reported_as_a_loop():
+    result = _paged_queue(pages=45, repeat_page=True)
+    assert result.outcome.value == 'incomplete'
+    assert 'repeated the same reviews' in result.reason

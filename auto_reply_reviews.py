@@ -23,7 +23,13 @@ from playwright.sync_api import sync_playwright
 
 import review_policy
 
-from queue_processor import ItemAction, ItemDecision, QueueOutcome, process_paginated_queue
+from queue_processor import (
+    DEFAULT_MAX_PAGES,
+    ItemAction,
+    ItemDecision,
+    QueueOutcome,
+    process_paginated_queue,
+)
 from reply_submission import SubmissionOutcome, submit_reply as submit_review_reply
 from review_detection import PageState, ReviewCard, scan_review_page
 from scripts.file_lock import GOOGLE_SHEET, STATE_FILES, file_lock
@@ -1068,6 +1074,16 @@ def _dashboard_count(page, queue_name: str) -> int | None:
     return read_dashboard_queue_state(page).count_for(queue_name)
 
 
+def review_queue_max_pages() -> int:
+    """Page budget for one queue walk; REVIEW_QUEUE_MAX_PAGES overrides the default."""
+    raw = os.getenv("REVIEW_QUEUE_MAX_PAGES", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_MAX_PAGES
+    except ValueError:
+        value = DEFAULT_MAX_PAGES
+    return max(1, value)
+
+
 def reset_review_scan_position(page) -> None:
     page.evaluate("""() => {
       for (const el of document.querySelectorAll('[data-codex-review-scan-started]')) {
@@ -1273,6 +1289,7 @@ def process_queue(page, profile: str, queue: ReviewQueue, args, log_path: Path) 
         advance_page=advance_page,
         max_replies=args.max_replies_per_refresh,
         max_cycles_per_page=max(10, args.max_refresh_rounds * 10),
+        max_pages=review_queue_max_pages(),
         prepare_scan=prepare_scan,
         wait_for_change=wait_for_change,
         recover_on_empty=recover_on_empty,

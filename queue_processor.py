@@ -186,9 +186,15 @@ def process_queue(scan: Callable[[], PageScan], decide: Callable[[ReviewCard], I
     return _result(progress, QueueOutcome.INCOMPLETE, "queue did not reach a stable completed state", remaining=1)
 
 
+# Every run walks the queue from page 1, and held reviews stay listed, so a
+# large backlog can span well over 20 pages. Override with REVIEW_QUEUE_MAX_PAGES.
+DEFAULT_MAX_PAGES = 200
+
+
 def process_paginated_queue(scan: Callable[[], PageScan], decide: Callable[[ReviewCard], ItemDecision],
                             submit: Callable[[ReviewCard, str], object], *, advance_page: Callable[[], bool],
-                            max_replies: int = 20, max_cycles_per_page: int = 60, max_pages: int = 20,
+                            max_replies: int = 20, max_cycles_per_page: int = 60,
+                            max_pages: int = DEFAULT_MAX_PAGES,
                             prepare_scan: Callable[[], None] | None = None,
                             wait_for_change: Callable[[], None] | None = None,
                             recover_on_empty: Callable[[], None] | None = None,
@@ -197,8 +203,16 @@ def process_paginated_queue(scan: Callable[[], PageScan], decide: Callable[[Revi
                             dashboard_retries: int = 3, queue_name: str = "",
                             min_stable_seconds: float = 0.0) -> QueueResult:
     progress = _Progress()
-    for _ in range(max_pages):
-        page_result = process_queue(scan, decide, submit, max_replies=max_replies,
+    previous_page_keys: frozenset[str] | None = None
+    for pages_walked in range(1, max_pages + 1):
+        page_keys: set[str] = set()
+
+        def tracked_scan(_inner=scan, _keys=page_keys) -> PageScan:
+            current = _inner()
+            _keys.update(card.key for card in current.cards)
+            return current
+
+        page_result = process_queue(tracked_scan, decide, submit, max_replies=max_replies,
                                     max_cycles=max_cycles_per_page, prepare_scan=prepare_scan,
                                     wait_for_change=wait_for_change,
                                     recover_on_empty=recover_on_empty, continue_dry_run=True,
@@ -206,10 +220,18 @@ def process_paginated_queue(scan: Callable[[], PageScan], decide: Callable[[Revi
                                     _progress=progress)
         if page_result.outcome is not QueueOutcome.COMPLETE:
             return page_result
+        # Next was clicked but the list still shows the same reviews: the paginator
+        # is looping, which a larger cap would only hide.
+        page_fingerprint = frozenset(page_keys) if page_keys else None
+        if page_fingerprint is not None and page_fingerprint == previous_page_keys:
+            return _result(progress, QueueOutcome.INCOMPLETE,
+                           f"pagination repeated the same reviews after page {pages_walked}", remaining=1)
+        previous_page_keys = page_fingerprint
         if not advance_page():
             break
     else:
-        return _result(progress, QueueOutcome.INCOMPLETE, "pagination safety cap reached", remaining=1)
+        return _result(progress, QueueOutcome.INCOMPLETE,
+                       f"pagination safety cap reached after {max_pages} pages", remaining=1)
 
     if progress.dry_run:
         return _result(progress, QueueOutcome.INCOMPLETE,
