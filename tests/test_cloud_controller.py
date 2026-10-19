@@ -67,5 +67,14 @@ class CloudControllerTests(unittest.TestCase):
             self.assertNotIn('@customer', summary)
 
 
+    def test_log_summary_shows_why_a_profile_stopped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'raw.log'
+            source.write_text('[welive_main] PROFILE INCOMPLETE: NavigationError: could not open neutral review queue order=577123456789\n')
+            summary = controller.tail_summary(source)
+            self.assertIn('Stopped: NavigationError: could not open neutral review queue', summary)
+            self.assertNotIn('577123456789', summary)
+
+
 if __name__ == '__main__':
     unittest.main()

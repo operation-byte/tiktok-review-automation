@@ -47,6 +47,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("cloud_controller")
 state_mutex = threading.RLock()
 job_mutex = threading.Lock()
+# Parallel shop runs must not append Sheet rows at the same time.
+sheet_sync_mutex = threading.Lock()
 stop = threading.Event()
 cancel_requested = threading.Event()
 current_process: subprocess.Popen | None = None
@@ -187,6 +189,11 @@ def tail_summary(path: Path) -> str:
             rows.append("Browser profile could not launch")
         elif "queue incomplete:" in line:
             rows.append("Review queue incomplete — inspect private logs")
+        elif incomplete := re.search(r"\] PROFILE INCOMPLETE: (.*)", line):
+            # Surface the error class and message so failures are diagnosable
+            # without the runner log; mask long digit runs such as order IDs.
+            detail = re.sub(r"\d{6,}", "<id>", incomplete.group(1))
+            rows.append("Stopped: " + (detail[:180] + "…" if len(detail) > 180 else detail))
     return "\n".join(rows[-6:]) or "No structured summary; see private server logs"
 
 
@@ -203,83 +210,89 @@ def purge_old_job_logs() -> None:
             log.warning("Could not prune old log file")
 
 
+def run_shop(shop: str, *, force_dry: bool = False, login: bool = False) -> None:
+    """Run one shop's worker and record its status. Safe to call from parallel threads."""
+    with state_mutex:
+        state["active"] = ("login " if login else "review check ") + shop
+        save_state()
+    datecode = now().strftime("%Y%m%d_%H%M%S")
+    logfile = LOG_DIR / f"cloud_{shop}_{datecode}{'_login' if login else ''}.log"
+    if login:
+        args = ["cloud_login.py", "--profile", shop, "--timeout", str(LOGIN_TIMEOUT)]
+        notify(f"Login browser started for {shop}. Connect to the private noVNC screen via the SSH tunnel and complete TikTok login within {LOGIN_TIMEOUT // 60} minutes. Do not send passwords or OTPs here.")
+    else:
+        sheets_flag = "--google-sheets" if SHEETS_MODE == "browser" and SUBMIT_ENABLED and not force_dry else "--no-google-sheets"
+        args = ["auto_reply_reviews.py", "--profile", shop, "--headless", sheets_flag, "--log-path", "logs/replied_reviews.csv"]
+        args.extend(["--recent-days", "30"])
+        if force_dry or not SUBMIT_ENABLED:
+            args.append("--dry-run")
+        else:
+            args.append("--submit")
+    code, timed_out = execute(args, LOGIN_TIMEOUT + 45 if login else RUN_TIMEOUT, logfile)
+    was_cancelled = cancel_requested.is_set()
+    output = logfile.read_text(encoding="utf-8", errors="replace")[-20000:]
+    if was_cancelled:
+        status = "cancelled by operator"
+    elif login:
+        success = code == 0 and "LOGIN_OK" in output
+        status = "login refreshed" if success else "login failed or timed out"
+    else:
+        requires_login = "LOGIN REQUIRED:" in output or "Login required for profiles:" in output
+        dry = force_dry or not SUBMIT_ENABLED
+        if requires_login: status = "login required"
+        elif timed_out: status = "timeout (worker cleaned up)"
+        elif dry and "dry run inspected" in output.lower(): status = "dry run: review candidates found"
+        elif code == 0: status = "dry run complete" if dry else "complete"
+        else: status = "incomplete — inspect logs"
+    with state_mutex:
+        previous_row = state.get("shops", {}).get(shop, {})
+        previous_status = previous_row.get("status", "")
+        previous_login_needed = previous_row.get("login_needed", previous_status == "login required")
+        # Preserve login-required state after a failed login attempt or a
+        # network/browser failure: a failed login MUST NOT silence alerts.
+        if login:
+            login_needed = not success
+        elif requires_login:
+            login_needed = True
+        elif code == 0 and not was_cancelled:
+            login_needed = False
+        else:
+            login_needed = previous_login_needed
+        state.setdefault("shops", {})[shop] = {
+            "status": status,
+            "login_needed": login_needed,
+            "when": now().strftime("%Y-%m-%d %H:%M SGT"),
+            "log": str(logfile),
+        }
+        save_state()
+    message = f"{shop}: {status}"
+    if not login:
+        message += "\n" + tail_summary(logfile)
+        if SHEETS_MODE == "browser" and any(text in output for text in (
+            "Google Sheet manual append failed", "Google Sheet manual append could not be verified",
+        )):
+            notify("Google Sheet browser logging needs attention. The reply is saved locally; inspect the private log and Sheet before retrying.")
+        if SHEETS_MODE == "api":
+            sync_file = LOG_DIR / f"sheets_sync_{shop}_{datecode}.log"
+            with sheet_sync_mutex:
+                sheet_code, sheet_timeout = execute(
+                    ["google_sheet_sync.py", "--log-path", "logs/replied_reviews.csv"], 180, sync_file
+                )
+            if sheet_code != 0 or sheet_timeout:
+                notify("Google Sheet sync needs attention: cloud replies remain saved locally. Check private sync logs; existing Sheet data was not overwritten.")
+    if login or ("login required" in status and not previous_login_needed) or (code != 0 and not was_cancelled and "login required" not in status):
+        notify(message)
+    else:
+        log.info("%s", message)
+
+
 def work(shops: list[str], force_dry: bool = False, login: bool = False) -> None:
     # start_work reserves job_mutex before starting this thread.
     try:
         for shop in shops:
             if cancel_requested.is_set() or stop.is_set():
                 break
-            with state_mutex:
-                state["active"] = ("login " if login else "review check ") + shop
-                save_state()
-            datecode = now().strftime("%Y%m%d_%H%M%S")
-            logfile = LOG_DIR / f"cloud_{shop}_{datecode}{'_login' if login else ''}.log"
-            if login:
-                args = ["cloud_login.py", "--profile", shop, "--timeout", str(LOGIN_TIMEOUT)]
-                notify(f"Login browser started for {shop}. Connect to the private noVNC screen via the SSH tunnel and complete TikTok login within {LOGIN_TIMEOUT // 60} minutes. Do not send passwords or OTPs here.")
-            else:
-                sheets_flag = "--google-sheets" if SHEETS_MODE == "browser" and SUBMIT_ENABLED and not force_dry else "--no-google-sheets"
-                args = ["auto_reply_reviews.py", "--profile", shop, "--headless", sheets_flag, "--log-path", "logs/replied_reviews.csv"]
-                args.extend(["--recent-days", "30"])
-                if force_dry or not SUBMIT_ENABLED:
-                    args.append("--dry-run")
-                else:
-                    args.append("--submit")
-            code, timed_out = execute(args, LOGIN_TIMEOUT + 45 if login else RUN_TIMEOUT, logfile)
-            was_cancelled = cancel_requested.is_set()
-            output = logfile.read_text(encoding="utf-8", errors="replace")[-20000:]
-            if was_cancelled:
-                status = "cancelled by operator"
-            elif login:
-                success = code == 0 and "LOGIN_OK" in output
-                status = "login refreshed" if success else "login failed or timed out"
-            else:
-                requires_login = "LOGIN REQUIRED:" in output or "Login required for profiles:" in output
-                dry = force_dry or not SUBMIT_ENABLED
-                if requires_login: status = "login required"
-                elif timed_out: status = "timeout (worker cleaned up)"
-                elif dry and "dry run inspected" in output.lower(): status = "dry run: review candidates found"
-                elif code == 0: status = "dry run complete" if dry else "complete"
-                else: status = "incomplete — inspect logs"
-            with state_mutex:
-                previous_row = state.get("shops", {}).get(shop, {})
-                previous_status = previous_row.get("status", "")
-                previous_login_needed = previous_row.get("login_needed", previous_status == "login required")
-                # Preserve login-required state after a failed login attempt or a
-                # network/browser failure: a failed login MUST NOT silence alerts.
-                if login:
-                    login_needed = not success
-                elif requires_login:
-                    login_needed = True
-                elif code == 0 and not was_cancelled:
-                    login_needed = False
-                else:
-                    login_needed = previous_login_needed
-                state.setdefault("shops", {})[shop] = {
-                    "status": status,
-                    "login_needed": login_needed,
-                    "when": now().strftime("%Y-%m-%d %H:%M SGT"),
-                    "log": str(logfile),
-                }
-                save_state()
-            message = f"{shop}: {status}"
-            if not login:
-                message += "\n" + tail_summary(logfile)
-                if SHEETS_MODE == "browser" and any(text in output for text in (
-                    "Google Sheet manual append failed", "Google Sheet manual append could not be verified",
-                )):
-                    notify("Google Sheet browser logging needs attention. The reply is saved locally; inspect the private log and Sheet before retrying.")
-                if SHEETS_MODE == "api":
-                    sync_file = LOG_DIR / f"sheets_sync_{datecode}.log"
-                    sheet_code, sheet_timeout = execute(
-                        ["google_sheet_sync.py", "--log-path", "logs/replied_reviews.csv"], 180, sync_file
-                    )
-                    if sheet_code != 0 or sheet_timeout:
-                        notify("Google Sheet sync needs attention: cloud replies remain saved locally. Check private sync logs; existing Sheet data was not overwritten.")
-            if login or ("login required" in status and not previous_login_needed) or (code != 0 and not was_cancelled and "login required" not in status):
-                notify(message)
-            else:
-                log.info("%s", message)
+            run_shop(shop, force_dry=force_dry, login=login)
     except Exception:
         log.exception("Worker management error")
         notify("Automation controller encountered an error. Check Docker logs.")

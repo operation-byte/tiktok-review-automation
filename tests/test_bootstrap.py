@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import json
 import sys
+import threading
 import types
 
 import pytest
@@ -66,8 +67,8 @@ def test_google_sheets_off_in_dry_run_before_launch(monkeypatch, tmp_path):
     notices = []
     fake = types.SimpleNamespace(
         state={}, load_state=lambda: {}, notify=notices.append, SHOPS=SHOPS,
-        SHEETS_MODE="api", job_mutex=types.SimpleNamespace(acquire=lambda timeout: True),
-        work=lambda shops, force_dry: fake.state.setdefault("shops", {}).update({shops[0]: {"status": "dry run complete"}}),
+        SHEETS_MODE="api", state_mutex=threading.Lock(),
+        run_shop=lambda shop, force_dry: fake.state.setdefault("shops", {}).update({shop: {"status": "dry run complete"}}),
         report=lambda: "daily report"
     )
     monkeypatch.setitem(sys.modules, "cloud_controller", fake)

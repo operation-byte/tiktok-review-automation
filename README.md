@@ -5,7 +5,7 @@ Actions, with private Telegram controls and a shared phone-compatible login
 viewer. Start with [setup and operation](START_HERE.md), or use the
 [deployment guide](DEPLOY_NOTES.md) to update an existing installation.
 
-- **Shop selection:** `AUTOMATION_SHOPS` selects WELIVE (`welive_main`), Snacker's Box (`snackersbox`) and/or Konomi Living (`konomi_living`). Only selected shops run, sequentially.
+- **Shop selection:** `AUTOMATION_SHOPS` selects WELIVE (`welive_main`), Snacker's Box (`snackersbox`) and/or Konomi Living (`konomi_living`). Only selected shops run, in parallel.
 - **Schedule:** TikTok checks run daily at 09:15 Asia/Singapore when `AUTOMATION_ENABLED=true`; `ENABLE_SUBMIT` separately controls public replies.
 - **Method:** existing Playwright browser UI; no TikTok API.
 - **Google spreadsheet:** original `TikTok Negative Review KPI`, `Backend Data` tab (`gid=298261214`); authenticated browser CSV reads and browser row entry, with duplicate tracking preserved in encrypted state.

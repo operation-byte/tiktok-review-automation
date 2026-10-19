@@ -35,7 +35,7 @@ public replies off and is not the routine way to update a running deployment.
 `snackersbox`, and `konomi_living`. The default is all three. Set it in the local
 setup environment before bootstrapping to select fewer shops; the wizard stores
 that selection as the GitHub Actions variable. Only selected shops need imported
-sessions. Review checks run sequentially at 09:15 Asia/Singapore when
+sessions. Review checks run in parallel at 09:15 Asia/Singapore when
 `AUTOMATION_ENABLED=true`. GitHub can delay scheduled starts.
 
 ## Connect the existing KPI Sheet

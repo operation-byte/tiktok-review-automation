@@ -26,6 +26,7 @@ import review_policy
 from queue_processor import ItemAction, ItemDecision, QueueOutcome, process_paginated_queue
 from reply_submission import SubmissionOutcome, submit_reply as submit_review_reply
 from review_detection import PageState, ReviewCard, scan_review_page
+from scripts.file_lock import GOOGLE_SHEET, STATE_FILES, file_lock
 from tiktok_navigation import (
     LoginRequiredError,
     NavigationError,
@@ -311,12 +312,13 @@ def upgrade_legacy_review_key(row: dict[str, str]) -> str:
 
 def append_reply_log(path: Path, entry: ReplyLogEntry) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    needs_header = not path.exists() or path.stat().st_size == 0
-    with path.open("a", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=LOG_FIELDS)
-        if needs_header:
-            writer.writeheader()
-        writer.writerow(asdict(entry))
+    with file_lock(STATE_FILES):
+        needs_header = not path.exists() or path.stat().st_size == 0
+        with path.open("a", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.DictWriter(handle, fieldnames=LOG_FIELDS)
+            if needs_header:
+                writer.writeheader()
+            writer.writerow(asdict(entry))
 
 
 def profile_label(profile: str) -> str:
@@ -431,12 +433,13 @@ def record_review_date(review_key: str, review_date: str, path: Path = Path("log
     if not review_key or not review_date:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    fresh = not path.exists() or path.stat().st_size == 0
-    with path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        if fresh:
-            writer.writerow(["review_key", "review_date"])
-        writer.writerow([review_key, review_date])
+    with file_lock(STATE_FILES):
+        fresh = not path.exists() or path.stat().st_size == 0
+        with path.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            if fresh:
+                writer.writerow(["review_key", "review_date"])
+            writer.writerow([review_key, review_date])
 
 
 def load_sheet_logged_keys(path: Path) -> set[str]:
@@ -447,7 +450,7 @@ def load_sheet_logged_keys(path: Path) -> set[str]:
 
 def mark_sheet_logged(path: Path, review_key: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
+    with file_lock(STATE_FILES), path.open("a", encoding="utf-8") as handle:
         handle.write(review_key + "\n")
 
 
@@ -650,6 +653,14 @@ def paste_google_sheet_row(sheet_page, target_row: int, row: list[str], args, *,
 
 
 def manual_append_google_sheet_log(page, args, entry: ReplyLogEntry, review_date: str) -> None:
+    # Shops run in parallel; two writers must never pick the same blank row.
+    if not args.google_sheets:
+        return
+    with file_lock(GOOGLE_SHEET):
+        _manual_append_google_sheet_log(page, args, entry, review_date)
+
+
+def _manual_append_google_sheet_log(page, args, entry: ReplyLogEntry, review_date: str) -> None:
     """Open Google Sheets and paste one KPI row into the real next blank row.
 
     This uses the same working method as the old-reply sync:
@@ -939,9 +950,11 @@ def load_cookies_into(context, profile: str) -> bool:
     return True
 
 
-def write_login_required_profiles(profiles: Iterable[str], path: Path | None = None) -> None:
+def write_login_required_profiles(
+    profiles: Iterable[str], path: Path | None = None, checked: Iterable[str] | None = None
+) -> None:
     path = path or LOGIN_REQUIRED_PROFILES_PATH
-    write_profile_list(profiles, path)
+    write_profile_list(profiles, path, checked)
 
 
 def read_login_required_profiles(path: Path | None = None) -> list[str]:
@@ -949,9 +962,11 @@ def read_login_required_profiles(path: Path | None = None) -> list[str]:
     return read_profile_list(path)
 
 
-def write_profile_launch_failed_profiles(profiles: Iterable[str], path: Path | None = None) -> None:
+def write_profile_launch_failed_profiles(
+    profiles: Iterable[str], path: Path | None = None, checked: Iterable[str] | None = None
+) -> None:
     path = path or PROFILE_LAUNCH_FAILED_PROFILES_PATH
-    write_profile_list(profiles, path)
+    write_profile_list(profiles, path, checked)
 
 
 def read_profile_launch_failed_profiles(path: Path | None = None) -> list[str]:
@@ -959,14 +974,23 @@ def read_profile_launch_failed_profiles(path: Path | None = None) -> list[str]:
     return read_profile_list(path)
 
 
-def write_profile_list(profiles: Iterable[str], path: Path) -> None:
-    profile_set = set(profiles)
-    unique_profiles = [profile for profile in PROFILE_RUN_ORDER if profile in profile_set]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if unique_profiles:
-        path.write_text("\n".join(unique_profiles) + "\n", encoding="utf-8")
-    elif path.exists():
-        path.unlink()
+def write_profile_list(profiles: Iterable[str], path: Path, checked: Iterable[str] | None = None) -> None:
+    """Replace the list, or only the `checked` profiles' entries when given.
+
+    Parallel single-shop runs pass `checked` so one shop never clears another
+    shop's flag.
+    """
+    with file_lock(STATE_FILES):
+        profile_set = set(profiles)
+        if checked is not None:
+            checked_set = set(checked)
+            profile_set |= {profile for profile in read_profile_list(path) if profile not in checked_set}
+        unique_profiles = [profile for profile in PROFILE_RUN_ORDER if profile in profile_set]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if unique_profiles:
+            path.write_text("\n".join(unique_profiles) + "\n", encoding="utf-8")
+        elif path.exists():
+            path.unlink()
 
 
 def read_profile_list(path: Path) -> list[str]:
@@ -1353,8 +1377,9 @@ def run_browser(args) -> list[str]:
     failed_profiles = []
     login_required_profiles = []
     profile_launch_failed_profiles = []
+    checked_profiles = list(profile_sequence(args.profile))
     with sync_playwright() as p:
-        for profile in profile_sequence(args.profile):
+        for profile in checked_profiles:
             config = PROFILES[profile]
             print("=" * 60)
             print(f"START PROFILE: {profile} ({config['label']})")
@@ -1383,7 +1408,7 @@ def run_browser(args) -> list[str]:
                 print(f"[{profile}] LOGIN REQUIRED: {exc}")
             except Exception as exc:
                 failed_profiles.append(profile)
-                print(f"[{profile}] PROFILE INCOMPLETE: {exc}")
+                print(f"[{profile}] PROFILE INCOMPLETE: {type(exc).__name__}: {exc}")
             finally:
                 try:
                     context.close()
@@ -1395,15 +1420,15 @@ def run_browser(args) -> list[str]:
     if failed_profiles:
         print(f"Profiles failed: {', '.join(failed_profiles)}")
     if login_required_profiles:
-        write_login_required_profiles(login_required_profiles)
+        write_login_required_profiles(login_required_profiles, checked=checked_profiles)
         print(f"Login required for profiles: {', '.join(login_required_profiles)}")
     else:
-        write_login_required_profiles([])
+        write_login_required_profiles([], checked=checked_profiles)
     if profile_launch_failed_profiles:
-        write_profile_launch_failed_profiles(profile_launch_failed_profiles)
+        write_profile_launch_failed_profiles(profile_launch_failed_profiles, checked=checked_profiles)
         print(f"Profile launch failed for profiles: {', '.join(profile_launch_failed_profiles)}")
     else:
-        write_profile_launch_failed_profiles([])
+        write_profile_launch_failed_profiles([], checked=checked_profiles)
     return failed_profiles
 
 

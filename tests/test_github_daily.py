@@ -68,7 +68,7 @@ def test_workflow_is_single_daily_run_for_three_shops():
     assert 'timezone: "Asia/Singapore"' in text
     assert 'concurrency:' in text
     code = (workflow.parents[2] / "github_daily.py").read_text()
-    assert 'for shop in c.SHOPS' in code
+    assert 'pool.submit(run_one, shop)' in code
     assert 'store.save(pack(Path(".")))' in code
     assert 'ready_for_live = has_snapshot and Path("state/history_imported.ok").is_file()' in code
 
@@ -93,3 +93,51 @@ def test_daily_runner_never_runs_live_without_history(monkeypatch, tmp_path):
     monkeypatch.setenv("ENABLE_SUBMIT", "true")
     assert main() == 2
     assert any("BLOCKED" in x for x in notifications)
+
+
+def test_daily_runner_runs_selected_shops_at_the_same_time(monkeypatch, tmp_path):
+    import threading
+    import github_daily
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state/history_imported.ok").write_text("{}")
+    shops = ["welive_main", "snackersbox"]
+    started = threading.Barrier(len(shops), timeout=5)
+    saves = []
+
+    def run_shop(shop, force_dry):
+        started.wait()  # Only passes when both shops are running together.
+        with fake.state_mutex:
+            fake.state.setdefault("shops", {})[shop] = {"status": "complete"}
+
+    fake = types.SimpleNamespace(
+        SHOPS=shops, state={}, load_state=lambda: {}, notify=lambda message: None,
+        state_mutex=threading.Lock(), run_shop=run_shop, report=lambda: "report",
+    )
+    monkeypatch.setitem(sys.modules, "cloud_controller", fake)
+
+    class Store:
+        def fetch(self):
+            return b"snapshot"
+        def save(self, encrypted):
+            saves.append(encrypted)
+
+    monkeypatch.setattr(github_daily, "GitHubStateStore", lambda: Store())
+    monkeypatch.setattr(github_daily, "unpack", lambda blob, root: None)
+    monkeypatch.setattr(github_daily, "pack", lambda root: b"packed")
+    monkeypatch.setattr(github_daily, "publish", lambda state: None)
+    monkeypatch.setenv("AUTOMATION_ENABLED", "true")
+    monkeypatch.setenv("ENABLE_SUBMIT", "true")
+    assert github_daily.main() == 0
+    assert len(saves) == 2
+
+
+def test_parallel_shop_runs_keep_each_others_profile_flags(monkeypatch, tmp_path):
+    from auto_reply_reviews import read_profile_list, write_profile_list
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "alerts/login_required_profiles.txt"
+    write_profile_list(["welive_main"], path, checked=["welive_main"])
+    write_profile_list([], path, checked=["snackersbox"])
+    assert read_profile_list(path) == ["welive_main"]
+    write_profile_list([], path, checked=["welive_main"])
+    assert read_profile_list(path) == []
