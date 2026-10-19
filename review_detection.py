@@ -206,7 +206,12 @@ _SCAN_SCRIPT = r"""
     const productId = text.match(/Product ID:\s*(\d+)/i);
     const user = text.match(/(@[^\s]+)(?=\s+(?:Reply|Review details))/i) || text.match(/(@[A-Za-z0-9_.-]+)/);
     const date = text.match(/(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})/);
-    const response = text.match(/(\d+)\s+response\(s\)/i);
+    // TikTok has labelled the count as "0 response(s)" and as "0 replies".
+    // Use the last count before the order ID so buyer text cannot spoof it.
+    const orderAt = order ? text.indexOf(order[0]) : text.length;
+    const counts = Array.from(text.matchAll(/(\d+)\s+(?:response\(s\)|repl(?:y|ies))(?![A-Za-z])/gi))
+      .filter(match => match.index < orderAt);
+    const response = counts.length ? counts[counts.length - 1] : null;
     const action = Array.from(row.querySelectorAll('button, a, [role="button"], [tabindex], div, span')).find(el =>
       actionable(el) &&
       /^Reply(?:\s|$)/i.test(compact(el.innerText || el.textContent || el.getAttribute('aria-label') || '')) &&
@@ -222,7 +227,7 @@ _SCAN_SCRIPT = r"""
     let reviewText = '';
     if (date && response) {
       const start = text.indexOf(date[0]) + date[0].length;
-      const end = text.indexOf(response[0], start);
+      const end = response.index;
       if (end >= start) reviewText = compact(text.slice(start, end));
     }
     let product = '';

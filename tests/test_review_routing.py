@@ -128,6 +128,20 @@ def test_long_review_extraction_preserves_late_concern():
     assert decision(summary['review_text']).category == 'Serious Concern / Escalation'
 
 
+
+@pytest.mark.parametrize("label", ["0 response(s)", "0 replies", "1 reply"])
+def test_review_extraction_accepts_both_reply_count_labels(label):
+    summary = app.extract_review_summary(
+        '15 October 2026 three boxes were all mint chocolate ' + label
+        + ' Order ID:123 Product ID:456 Biscuits @test Reply Review details')
+    assert summary['review_text'] == 'three boxes were all mint chocolate'
+    assert app.clean_review_text(label + ' Order ID:123') == ''
+
+
+def test_scan_script_reads_new_replies_label():
+    from review_detection import _SCAN_SCRIPT
+    assert "repl(?:y|ies)" in _SCAN_SCRIPT
+
 def test_existing_seller_response_is_never_replied_to_again():
     from queue_processor import process_queue, ItemDecision, ItemAction
     from review_detection import ReviewCard, PageScan, PageState

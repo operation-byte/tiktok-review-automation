@@ -226,6 +226,10 @@ def review_date_action(review_date: str, *, recent_days: int, since_date: date |
     return None
 
 
+# TikTok has labelled the per-review reply count both "0 response(s)" and "0 replies".
+RESPONSE_COUNT_PATTERN = r"\d+\s+(?:response\(s\)|repl(?:y|ies))(?![A-Za-z])"
+
+
 def clean_review_text(value: str) -> str:
     """Remove TikTok UI metadata so only the buyer's written review is routed."""
     text = compact_text(value, 10000)
@@ -234,7 +238,7 @@ def clean_review_text(value: str) -> str:
 
     # A blank review is rendered as UI metadata beginning with "0 response(s)".
     # Treat that as empty rather than replying to the page chrome.
-    if re.match(r"^\d+\s+response\(s\)\s+Order ID:", text, flags=re.IGNORECASE):
+    if re.match(rf"^{RESPONSE_COUNT_PATTERN}\s+Order ID:", text, flags=re.IGNORECASE):
         return ""
     if (
         "order id:" in text.lower()
@@ -246,7 +250,7 @@ def clean_review_text(value: str) -> str:
 
     # Updated labels and prior seller responses are UI content, not buyer feedback.
     text = re.sub(r"^\|?Updated\s+(?:\d+|a|an)\s+\w+\s+ago\s*", "", text, flags=re.I)
-    text = re.split(r"\s+\d+\s+response\(s\)", text, maxsplit=1, flags=re.I)[0]
+    text = re.split(rf"\s+{RESPONSE_COUNT_PATTERN}", text, maxsplit=1, flags=re.I)[0]
     return text.strip()
 
 
@@ -262,7 +266,7 @@ def extract_review_summary(raw_text: str) -> dict[str, str]:
 
     review_match = re.search(
         r"\b\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}\b\s*(.*?)"
-        r"(?=\s+\d+\s+response\(s\)\s+Order ID:|$)",
+        rf"(?=\s+{RESPONSE_COUNT_PATTERN}\s+Order ID:|$)",
         text,
         flags=re.IGNORECASE,
     )
