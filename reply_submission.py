@@ -65,20 +65,22 @@ def submit_reply(
     except Exception as exc:
         return SubmissionResult(SubmissionOutcome.FAILED, f"submission interaction failed: {exc}")
 
-    # A success toast is independent positive evidence. Exceptions here are not
-    # success and still fall through to identity reconciliation.
-    try:
-        acknowledgements_after = _success_acknowledgements(page)
-        if acknowledgements_before is not None and Counter(acknowledgements_after) - Counter(acknowledgements_before):
-            return SubmissionResult(SubmissionOutcome.SUBMITTED, positive_signal="success_acknowledgement")
-    except Exception:
-        pass
-
     last_result = SubmissionResult(SubmissionOutcome.AMBIGUOUS, "submit verification did not settle")
     for attempt in range(8):
         if attempt:
             try:
                 page.wait_for_timeout(750)
+            except Exception:
+                pass
+        # A success toast is independent positive evidence. TikTok shows it only
+        # after its API answers, which can be well after the click, so check it
+        # on every attempt rather than once. Under the "Awaiting reply" filter a
+        # replied row usually just disappears, so the toast is often the only
+        # proof available. Exceptions here are not success.
+        if acknowledgements_before is not None:
+            try:
+                if Counter(_success_acknowledgements(page)) - Counter(acknowledgements_before):
+                    return SubmissionResult(SubmissionOutcome.SUBMITTED, positive_signal="success_acknowledgement")
             except Exception:
                 pass
         try:

@@ -170,8 +170,10 @@ def process_queue(scan: Callable[[], PageScan], decide: Callable[[ReviewCard], I
             progress.submitted.add(card.key)
         elif outcome == "ambiguous":
             progress.manual_check.add(card.key)
+            detail = getattr(submission, "reason", "")
             return _result(progress, QueueOutcome.INCOMPLETE,
-                           "submission is ambiguous; manual verification required before retry",
+                           "submission is ambiguous; manual verification required before retry"
+                           + (f" ({detail})" if detail else ""),
                            remaining=1, notes=("ambiguous_manual_check",))
         elif outcome == "dry_run":
             progress.dry_run.add(card.key)
