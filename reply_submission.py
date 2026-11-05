@@ -51,7 +51,8 @@ def submit_reply(
                           f"matching this review={opened.get('matching_rows')})")
             return SubmissionResult(SubmissionOutcome.NOT_FOUND, "stable review identity was not uniquely actionable" + detail)
         if not _fill_editor(page, reply_text):
-            return SubmissionResult(SubmissionOutcome.FAILED, "visible reply editor was not available")
+            return SubmissionResult(SubmissionOutcome.FAILED,
+                                    "visible reply editor was not available" + _editor_diagnostics(page))
         if not submit:
             _cancel_dry_run(page)
             return SubmissionResult(SubmissionOutcome.DRY_RUN, "reply filled but not submitted")
@@ -156,6 +157,21 @@ def _fill_editor(page, text: str) -> bool:
     return False
 
 
+def _editor_diagnostics(page) -> str:
+    """Describe what the page showed after Reply, without customer text."""
+    try:
+        info = page.evaluate(_EDITOR_DIAGNOSTICS_SCRIPT)
+    except Exception:
+        return ""
+    if not isinstance(info, dict):
+        return ""
+    parts = [f"textareas={info.get('textareas')}", f"editable={info.get('editable')}",
+             f"dialogs={info.get('dialogs')}"]
+    if info.get("alert"):
+        parts.append(f"alert={str(info['alert'])[:120]!r}")
+    return " (" + ", ".join(parts) + ")"
+
+
 def _click_submit(page) -> bool:
     try:
         page.locator("button:has-text('Submit')").last.click(timeout=7000)
@@ -226,6 +242,27 @@ _OPEN_EDITOR_SCRIPT = r"""
   unique[0].scrollIntoView({block: 'center', inline: 'center'});
   unique[0].click();
   return true;
+}
+"""
+
+
+_EDITOR_DIAGNOSTICS_SCRIPT = r"""
+() => {
+  const visible = el => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const count = selector => Array.from(document.querySelectorAll(selector)).filter(visible).length;
+  // Only TikTok's own alert/toast wording, never review rows.
+  const alert = Array.from(document.querySelectorAll('[role="alert"], [class*="toast"], [class*="message-notice"]'))
+    .filter(visible).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean)[0] || '';
+  return {
+    textareas: count('textarea'),
+    editable: count('[contenteditable="true"], [role="textbox"]'),
+    dialogs: count('[role="dialog"], [class*="modal"], [class*="drawer"]'),
+    alert,
+  };
 }
 """
 
