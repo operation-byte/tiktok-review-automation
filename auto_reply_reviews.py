@@ -1495,9 +1495,12 @@ def run_browser(args) -> list[str]:
                 login_required_profiles.append(profile)
                 failed_profiles.append(profile)
                 print(f"[{profile}] LOGIN REQUIRED: {exc}")
+                save_debug_screenshot(page, f"{profile}_login_required")
             except Exception as exc:
                 failed_profiles.append(profile)
                 print(f"[{profile}] PROFILE INCOMPLETE: {type(exc).__name__}: {exc}")
+                # Navigation stops happen before the queue's own screenshot.
+                save_debug_screenshot(page, f"{profile}_{type(exc).__name__}")
             finally:
                 try:
                     context.close()
