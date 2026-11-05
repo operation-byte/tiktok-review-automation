@@ -20,6 +20,9 @@ class SubmissionOutcome(str, Enum):
     NOT_FOUND = "not_found"
     FAILED = "failed"
     AMBIGUOUS = "ambiguous"
+    # Reply opened TikTok's read-only "Review details" dialog with an existing
+    # seller reply instead of an editor: the review is already answered.
+    ALREADY_REPLIED = "already_replied"
 
 
 @dataclass(frozen=True)
@@ -50,7 +53,15 @@ def submit_reply(
                 detail = (f" (reply controls on page={opened.get('reply_controls')}, "
                           f"matching this review={opened.get('matching_rows')})")
             return SubmissionResult(SubmissionOutcome.NOT_FOUND, "stable review identity was not uniquely actionable" + detail)
+        if _close_existing_reply_dialog(page, card):
+            return SubmissionResult(SubmissionOutcome.ALREADY_REPLIED,
+                                    "TikTok shows an existing seller reply for this review",
+                                    positive_signal="existing_seller_reply")
         if not _fill_editor(page, reply_text):
+            if _close_existing_reply_dialog(page, card):
+                return SubmissionResult(SubmissionOutcome.ALREADY_REPLIED,
+                                        "TikTok shows an existing seller reply for this review",
+                                        positive_signal="existing_seller_reply")
             return SubmissionResult(SubmissionOutcome.FAILED,
                                     "visible reply editor was not available" + _editor_diagnostics(page))
         if not submit:
@@ -172,6 +183,27 @@ def _editor_diagnostics(page) -> str:
     return " (" + ", ".join(parts) + ")"
 
 
+def _close_existing_reply_dialog(page, card: ReviewCard) -> bool:
+    """True when TikTok shows this review's existing seller reply; closes it."""
+    try:
+        found = page.evaluate(_EXISTING_REPLY_SCRIPT, {"review_text": card.review_text})
+    except Exception:
+        return False
+    if not found:
+        return False
+    for selector in ("[role='dialog'] button:has-text('OK')", "button:has-text('OK')"):
+        try:
+            page.locator(selector).last.click(timeout=3000)
+            return True
+        except Exception:
+            continue
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    return True
+
+
 def _click_submit(page) -> bool:
     try:
         page.locator("button:has-text('Submit')").last.click(timeout=7000)
@@ -263,6 +295,27 @@ _EDITOR_DIAGNOSTICS_SCRIPT = r"""
     dialogs: count('[role="dialog"], [class*="modal"], [class*="drawer"]'),
     alert,
   };
+}
+"""
+
+
+_EXISTING_REPLY_SCRIPT = r"""
+(target) => {
+  const compact = value => (value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  const visible = el => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  // The list truncates review text with "..", so compare a short prefix.
+  const probe = compact(target.review_text).replace(/\.{2,}.*$/, '').slice(0, 40);
+  return Array.from(document.querySelectorAll('[role="dialog"], [class*="modal"], [class*="drawer"]'))
+    .filter(visible)
+    .some(el => {
+      const text = compact(el.innerText || el.textContent || '');
+      return text.includes('review details') && /seller reply/.test(text) &&
+        (!probe || text.includes(probe));
+    });
 }
 """
 

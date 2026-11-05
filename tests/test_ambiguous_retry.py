@@ -60,3 +60,12 @@ def test_unparseable_time_never_retries(tmp_path):
     text = path.read_text().replace(NOW.isoformat(timespec="seconds"), "not-a-date")
     path.write_text(text)
     assert not reviews.ambiguous_retry_allowed(reviews.ambiguous_attempts(path).get(KEY), NOW)
+
+
+def test_already_replied_is_never_retried(tmp_path):
+    path = tmp_path / "log.csv"
+    _write(path, [
+        (NOW - timedelta(hours=1), "ambiguous_submit_manual_check"),
+        (NOW, "already_replied"),
+    ])
+    assert reviews.load_logged_review_states(path)[KEY] is reviews.LoggedReviewState.ALREADY_REPLIED

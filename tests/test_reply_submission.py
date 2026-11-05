@@ -22,6 +22,7 @@ def _patch(monkeypatch, page):
     monkeypatch.setattr(rs, "_open_editor_for_identity", lambda *_: True)
     monkeypatch.setattr(rs, "_fill_editor", lambda *_: True)
     monkeypatch.setattr(rs, "_click_submit", lambda *_: True)
+    monkeypatch.setattr(rs, "_close_existing_reply_dialog", lambda *_: False)
 
     def toasts(_page):
         return page._toasts.pop(0) if len(page._toasts) > 1 else page._toasts[0]
@@ -73,3 +74,35 @@ def test_missing_baseline_never_trusts_toast(monkeypatch):
     monkeypatch.setattr(rs, "_success_acknowledgements", toasts)
     result = rs.submit_reply(page, CARD, "sorry", submit=True, rescan=_absent)
     assert result.outcome is rs.SubmissionOutcome.AMBIGUOUS
+
+
+def test_existing_reply_dialog_is_already_replied_and_never_submits(monkeypatch):
+    page = FakePage([()])
+    _patch(monkeypatch, page)
+    monkeypatch.setattr(rs, "_close_existing_reply_dialog", lambda *_: True)
+    clicked = []
+    monkeypatch.setattr(rs, "_click_submit", lambda *_: clicked.append(1) or True)
+    filled = []
+    monkeypatch.setattr(rs, "_fill_editor", lambda *_: filled.append(1) or True)
+    result = rs.submit_reply(page, CARD, "sorry", submit=True, rescan=_absent)
+    assert result.outcome is rs.SubmissionOutcome.ALREADY_REPLIED
+    assert not clicked and not filled
+
+
+def test_dialog_that_loads_late_is_still_recognised(monkeypatch):
+    page = FakePage([()])
+    _patch(monkeypatch, page)
+    seen = iter([False, True])
+    monkeypatch.setattr(rs, "_close_existing_reply_dialog", lambda *_: next(seen))
+    monkeypatch.setattr(rs, "_fill_editor", lambda *_: False)
+    result = rs.submit_reply(page, CARD, "sorry", submit=True, rescan=_absent)
+    assert result.outcome is rs.SubmissionOutcome.ALREADY_REPLIED
+
+
+def test_no_editor_and_no_dialog_is_a_failure(monkeypatch):
+    page = FakePage([()])
+    _patch(monkeypatch, page)
+    monkeypatch.setattr(rs, "_fill_editor", lambda *_: False)
+    monkeypatch.setattr(rs, "_editor_diagnostics", lambda *_: "")
+    result = rs.submit_reply(page, CARD, "sorry", submit=True, rescan=_absent)
+    assert result.outcome is rs.SubmissionOutcome.FAILED

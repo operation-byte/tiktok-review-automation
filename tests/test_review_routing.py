@@ -245,3 +245,42 @@ def test_next_page_returning_same_reviews_is_reported_as_a_loop():
     result = _paged_queue(pages=45, repeat_page=True)
     assert result.outcome.value == 'incomplete'
     assert 'repeated the same reviews' in result.reason
+
+
+def test_stale_listing_with_existing_reply_completes_without_resending():
+    # Seen live 2026-11-05: TikTok listed a replied review as "0 replies" with
+    # a Reply action; clicking it opened the existing reply instead of an editor.
+    from types import SimpleNamespace
+    from queue_processor import process_paginated_queue, ItemDecision, ItemAction
+    from review_detection import ReviewCard, PageScan, PageState
+    card = ReviewCard('k', 'o', 'u', 'p', 'Biscuits', 'bad', '2026-11-04', 2, 0, True, '')
+    sent = []
+
+    def submit(card, text):
+        sent.append(card.key)
+        return SimpleNamespace(outcome='already_replied', reason='existing reply')
+
+    result = process_paginated_queue(
+        lambda: PageScan(PageState.LOADED_WITH_ROWS, (card,)),
+        lambda card: ItemDecision(ItemAction.REPLY, 'sorry'),
+        submit, advance_page=lambda: False, dashboard_count=lambda: 1,
+    )
+    assert result.outcome.value == 'complete'
+    assert sent == ['k']
+    assert result.already_replied == 1 and result.submitted == 0
+
+
+def test_logged_already_replied_review_is_skipped_even_if_still_listed():
+    from queue_processor import process_paginated_queue, ItemDecision, ItemAction
+    from review_detection import ReviewCard, PageScan, PageState
+    card = ReviewCard('k', 'o', 'u', 'p', 'Biscuits', 'bad', '2026-11-04', 2, 0, True, '')
+
+    def must_not_submit(*args):
+        pytest.fail('a confirmed reply must never be sent again')
+
+    result = process_paginated_queue(
+        lambda: PageScan(PageState.LOADED_WITH_ROWS, (card,)),
+        lambda card: ItemDecision(ItemAction.SKIP_REPLIED),
+        must_not_submit, advance_page=lambda: False, dashboard_count=lambda: 1,
+    )
+    assert result.outcome.value == 'complete'

@@ -79,6 +79,8 @@ SERIOUS_CONCERN_REPLY_TEXT = (
 
 AUTO_REPLY_TERMINAL_STATUSES = {
     "submitted",
+    # Reply opened TikTok's read-only details dialog with an existing seller reply.
+    "already_replied",
     # Submit was clicked but TikTok gave no positive verification. Blocked until
     # TikTok still shows the review awaiting reply with 0 replies after
     # AMBIGUOUS_RETRY_AFTER_MINUTES; then retried once (see ambiguous_retry_allowed).
@@ -736,6 +738,7 @@ class LoggedReviewState(str, Enum):
     SUBMITTED = "submitted"
     HOLD_MANUAL = "hold_manual"
     AMBIGUOUS_MANUAL_CHECK = "ambiguous_manual_check"
+    ALREADY_REPLIED = "already_replied"
 
 
 def load_logged_review_states(path: Path) -> dict[str, LoggedReviewState]:
@@ -754,6 +757,8 @@ def load_logged_review_states(path: Path) -> dict[str, LoggedReviewState]:
                 continue
             if status == "submitted":
                 state = LoggedReviewState.SUBMITTED
+            elif status == "already_replied":
+                state = LoggedReviewState.ALREADY_REPLIED
             elif status in {"ambiguous", "ambiguous_submit_manual_check"}:
                 state = LoggedReviewState.AMBIGUOUS_MANUAL_CHECK
             else:
@@ -763,11 +768,13 @@ def load_logged_review_states(path: Path) -> dict[str, LoggedReviewState]:
     return states
 
 
-# An ambiguous submit blocks the review until TikTok itself shows the reply did
-# not land. The queue only evaluates rows that are under "Awaiting reply" with a
-# Reply action and a read count of 0, so seeing the same review there again this
-# long after the attempt means no reply exists. Retry it once; a second
-# ambiguous attempt stays blocked for a human.
+# An ambiguous submit blocks the review for a while, then allows ONE retry of
+# the Reply click. The list's "Awaiting reply" / "0 replies" can be stale (seen
+# 2026-11-05: a reply posted at 16:14 was still listed as 0 replies at 16:50),
+# so that alone is NOT proof the reply is missing. What makes the retry safe is
+# TikTok itself: when a seller reply exists, Reply opens a read-only "Review
+# details" dialog instead of an editor, which submit_reply reports as
+# ALREADY_REPLIED. A second ambiguous attempt stays blocked for a human.
 AMBIGUOUS_RETRY_AFTER_MINUTES = float(os.getenv("AMBIGUOUS_RETRY_AFTER_MINUTES", "30"))
 AMBIGUOUS_MAX_AUTO_RETRIES = 1
 
@@ -1218,9 +1225,11 @@ def process_queue(page, profile: str, queue: ReviewQueue, args, log_path: Path) 
         logged_state = logged_states.get(card.key) or logged_states.get(legacy_key)
         if logged_state is LoggedReviewState.SUBMITTED:
             return ItemDecision(ItemAction.SKIP_LOGGED)
+        if logged_state is LoggedReviewState.ALREADY_REPLIED:
+            return ItemDecision(ItemAction.SKIP_REPLIED)
         if logged_state is LoggedReviewState.AMBIGUOUS_MANUAL_CHECK:
-            # process_queue only asks about rows still awaiting a reply with 0
-            # replies, so this is TikTok showing the earlier reply did not land.
+            # Listed as awaiting reply again; the list can be stale, so the
+            # retry relies on TikTok refusing an editor when a reply exists.
             attempt = ambiguous_log.get(card.key) or ambiguous_log.get(legacy_key)
             if not ambiguous_retry_allowed(attempt):
                 return ItemDecision(ItemAction.BLOCK_MANUAL)
@@ -1279,12 +1288,15 @@ def process_queue(page, profile: str, queue: ReviewQueue, args, log_path: Path) 
             log_status, card.key,
         )
         append_reply_log(log_path, entry)
-        if outcome.outcome is SubmissionOutcome.SUBMITTED:
+        if outcome.outcome is SubmissionOutcome.ALREADY_REPLIED:
+            print(f"[{profile}] {queue.name}: ALREADY REPLIED on TikTok; list was stale. Recorded, not re-sent.")
+        if outcome.outcome in {SubmissionOutcome.SUBMITTED, SubmissionOutcome.ALREADY_REPLIED}:
             record_review_date(entry.review_key, summary.get("review_date", ""))
             manual_append_google_sheet_log(page, args, entry, summary.get("review_date", ""))
         # Keep the browser responsive and allow Playwright to observe page changes.
         page.wait_for_timeout(max(0, int(args.delay_after_reply * 1000)))
-        if outcome.outcome in {SubmissionOutcome.SUBMITTED, SubmissionOutcome.DRY_RUN}:
+        if outcome.outcome in {SubmissionOutcome.SUBMITTED, SubmissionOutcome.DRY_RUN,
+                               SubmissionOutcome.ALREADY_REPLIED}:
             print(f"[{profile}] Re-entering {queue.name} queue after reply interaction.")
             open_authoritative_queue(page, profile, queue)
             reset_review_scan_position(page)

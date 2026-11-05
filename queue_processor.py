@@ -14,6 +14,9 @@ class ItemAction(str, Enum):
     SKIP_LOGGED = "skip_logged"
     HOLD_MANUAL = "hold_manual"
     BLOCK_MANUAL = "block_manual"
+    # TikTok confirmed a seller reply exists, but its list may still show the
+    # row as awaiting reply. Account for it; never reply again.
+    SKIP_REPLIED = "skip_replied"
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class QueueResult:
     held_manual: int = 0
     dry_run: int = 0
     manual_check: int = 0
+    already_replied: int = 0
     failed: int = 0
     remaining: int = 0
     dashboard_count: int | None = None
@@ -54,10 +58,12 @@ class _Progress:
     held_manual: set[str] = field(default_factory=set)
     dry_run: set[str] = field(default_factory=set)
     manual_check: set[str] = field(default_factory=set)
+    confirmed_replied: set[str] = field(default_factory=set)
 
     @property
     def terminal(self) -> set[str]:
-        return self.submitted | self.skipped_old | self.held_manual | self.dry_run | self.manual_check
+        return (self.submitted | self.skipped_old | self.held_manual | self.dry_run
+                | self.manual_check | self.confirmed_replied)
 
 
 def _result(progress: _Progress, outcome: QueueOutcome, reason: str = "", *, failed: int = 0,
@@ -66,6 +72,7 @@ def _result(progress: _Progress, outcome: QueueOutcome, reason: str = "", *, fai
     return QueueResult(outcome=outcome, submitted=len(progress.submitted),
                        skipped_old=len(progress.skipped_old), skipped_logged=len(progress.skipped_logged),
                        held_manual=len(progress.held_manual), dry_run=len(progress.dry_run),
+                       already_replied=len(progress.confirmed_replied),
                        manual_check=len(progress.manual_check), failed=failed, remaining=remaining,
                        dashboard_count=dashboard_count, reconciliation_notes=notes, reason=reason)
 
@@ -126,6 +133,8 @@ def process_queue(scan: Callable[[], PageScan], decide: Callable[[ReviewCard], I
                     logged_conflicts.add(card.key)
             elif decision.action is ItemAction.HOLD_MANUAL:
                 progress.held_manual.add(card.key)
+            elif decision.action is ItemAction.SKIP_REPLIED:
+                progress.confirmed_replied.add(card.key)
             elif decision.action is ItemAction.BLOCK_MANUAL:
                 progress.manual_check.add(card.key)
                 return _result(progress, QueueOutcome.INCOMPLETE,
@@ -168,6 +177,10 @@ def process_queue(scan: Callable[[], PageScan], decide: Callable[[ReviewCard], I
         outcome = getattr(getattr(submission, "outcome", None), "value", getattr(submission, "outcome", ""))
         if outcome == "submitted":
             progress.submitted.add(card.key)
+        elif outcome == "already_replied":
+            # TikTok's list was stale; the review already has a seller reply.
+            # Count it as accounted for so dashboard reconciliation still adds up.
+            progress.confirmed_replied.add(card.key)
         elif outcome == "ambiguous":
             progress.manual_check.add(card.key)
             detail = getattr(submission, "reason", "")
@@ -241,7 +254,8 @@ def process_paginated_queue(scan: Callable[[], PageScan], decide: Callable[[Revi
                        remaining=len(progress.dry_run))
 
     advertised = None
-    explainable_keys = progress.skipped_old | progress.skipped_logged | progress.held_manual
+    explainable_keys = (progress.skipped_old | progress.skipped_logged | progress.held_manual
+                        | progress.confirmed_replied)
     explainable = len(explainable_keys)
     for attempt in range(max(1, dashboard_retries) if dashboard_count else 0):
         advertised = dashboard_count()
