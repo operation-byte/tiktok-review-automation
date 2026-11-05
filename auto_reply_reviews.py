@@ -79,8 +79,9 @@ SERIOUS_CONCERN_REPLY_TEXT = (
 
 AUTO_REPLY_TERMINAL_STATUSES = {
     "submitted",
-    # Submit was clicked but TikTok gave no positive verification. Never retry
-    # automatically: a human must first check whether the reply actually landed.
+    # Submit was clicked but TikTok gave no positive verification. Blocked until
+    # TikTok still shows the review awaiting reply with 0 replies after
+    # AMBIGUOUS_RETRY_AFTER_MINUTES; then retried once (see ambiguous_retry_allowed).
     "ambiguous",
     "ambiguous_submit_manual_check",
     "needs_manual_review_missing_date",
@@ -762,6 +763,50 @@ def load_logged_review_states(path: Path) -> dict[str, LoggedReviewState]:
     return states
 
 
+# An ambiguous submit blocks the review until TikTok itself shows the reply did
+# not land. The queue only evaluates rows that are under "Awaiting reply" with a
+# Reply action and a read count of 0, so seeing the same review there again this
+# long after the attempt means no reply exists. Retry it once; a second
+# ambiguous attempt stays blocked for a human.
+AMBIGUOUS_RETRY_AFTER_MINUTES = float(os.getenv("AMBIGUOUS_RETRY_AFTER_MINUTES", "30"))
+AMBIGUOUS_MAX_AUTO_RETRIES = 1
+
+
+def ambiguous_attempts(path: Path) -> dict[str, tuple[int, datetime | None]]:
+    """Map review keys to (ambiguous attempt count, time of the latest one)."""
+    attempts: dict[str, tuple[int, datetime | None]] = {}
+    if not path.exists():
+        return attempts
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("status") not in {"ambiguous", "ambiguous_submit_manual_check"}:
+                continue
+            try:
+                when = datetime.fromisoformat(row.get("replied_at") or "")
+                if when.tzinfo is None:
+                    when = when.astimezone()
+            except ValueError:
+                when = None
+            for key in {row.get("review_key") or "", upgrade_legacy_review_key(row)}:
+                if not key:
+                    continue
+                count, latest = attempts.get(key, (0, None))
+                if latest is None or (when is not None and when > latest):
+                    latest = when
+                attempts[key] = (count + 1, latest)
+    return attempts
+
+
+def ambiguous_retry_allowed(attempt: tuple[int, datetime | None] | None, now: datetime | None = None) -> bool:
+    if not attempt:
+        return False
+    count, latest = attempt
+    if count > AMBIGUOUS_MAX_AUTO_RETRIES or latest is None:
+        return False
+    now = now or datetime.now().astimezone()
+    return (now - latest).total_seconds() >= AMBIGUOUS_RETRY_AFTER_MINUTES * 60
+
+
 def iter_log_rows(path: Path) -> Iterable[dict[str, str]]:
     if not path.exists():
         return []
@@ -1154,6 +1199,7 @@ def process_queue(page, profile: str, queue: ReviewQueue, args, log_path: Path) 
         return 0
 
     logged_states = load_logged_review_states(log_path)
+    ambiguous_log = ambiguous_attempts(log_path)
     manually_logged: set[str] = set()
     decisions: dict[str, tuple[dict[str, str], ReplyDecision]] = {}
 
@@ -1173,7 +1219,15 @@ def process_queue(page, profile: str, queue: ReviewQueue, args, log_path: Path) 
         if logged_state is LoggedReviewState.SUBMITTED:
             return ItemDecision(ItemAction.SKIP_LOGGED)
         if logged_state is LoggedReviewState.AMBIGUOUS_MANUAL_CHECK:
-            return ItemDecision(ItemAction.BLOCK_MANUAL)
+            # process_queue only asks about rows still awaiting a reply with 0
+            # replies, so this is TikTok showing the earlier reply did not land.
+            attempt = ambiguous_log.get(card.key) or ambiguous_log.get(legacy_key)
+            if not ambiguous_retry_allowed(attempt):
+                return ItemDecision(ItemAction.BLOCK_MANUAL)
+            print(
+                f"[{profile}] {queue.name}: RETRY after ambiguous submit; review is still "
+                f"awaiting reply with 0 replies order={card.order_id or 'unknown'}"
+            )
         if logged_state is LoggedReviewState.HOLD_MANUAL:
             return ItemDecision(ItemAction.HOLD_MANUAL)
         review_date = summary.get("review_date", "") or card.review_date
