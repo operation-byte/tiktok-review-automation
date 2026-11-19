@@ -432,7 +432,9 @@ _QUEUE_RESULTS_SETTLED_SCRIPT = r"""
     const allowed = label === 'Negative reviews' ? new Set([1, 2]) : new Set([3]);
     const rows = Array.from(document.querySelectorAll('[class*="ratingListItem"], [data-e2e*="rating"], [data-e2e*="review"]'))
       .filter(el => visible(el));
-    if (rows.length < Math.min(requestedCount, 50)) return false;
+    // The heading counts the whole queue. TikTok may render just ten rows
+    // per page, and the queue processor walks the remaining pages.
+    if (rows.length === 0) return false;
     return rows.every(row => {
       const stars = row.querySelectorAll('[class*="ratingStar"] [class*="activeStar"]').length;
       return allowed.has(stars);
