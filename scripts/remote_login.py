@@ -2,8 +2,9 @@
 import os
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as BrowserError, sync_playwright
 from scripts.github_state import GitHubStateStore
 from scripts.state_vault import pack, unpack
 from scripts.control_report import publish
@@ -12,10 +13,47 @@ from scripts.login_browser import control, private_desktop
 SHOPS=('welive_main','snackersbox','konomi_living')
 
 
+def ratings_page(page):
+    url = urlsplit(page.url)
+    return (url.scheme == 'https' and url.hostname == 'seller-sg.tiktok.com'
+            and url.path.rstrip('/') == '/product/rating')
+
+
 def verified_login(page):
-    if '/product/rating' not in page.url or 'login' in page.url.lower():return False
-    text=page.locator('body').inner_text(timeout=4000).lower()
-    return any(marker in text for marker in ('negative review','neutral review','product rating','reply now','product ratings'))
+    if not ratings_page(page):
+        return False
+    text = page.locator('body').inner_text(timeout=750).lower()
+    return any(marker in text for marker in ('negative review', 'neutral review', 'product rating', 'reply now'))
+
+
+def wait_for_verified_login(context, timeout=12):
+    deadline = time.monotonic() + timeout
+    reload_after = time.monotonic() + timeout / 2
+    refreshed = False
+    previous = None
+    while time.monotonic() < deadline:
+        candidate = None
+        for tab in reversed(context.pages):
+            try:
+                if verified_login(tab):
+                    candidate = tab
+                    break
+            except BrowserError:
+                continue  # The tab can navigate or close while its body is read.
+        if candidate is not None and candidate is previous:
+            return True
+        previous = candidate
+        if candidate is None and not refreshed and time.monotonic() >= reload_after:
+            for tab in reversed(context.pages):
+                if ratings_page(tab):
+                    refreshed = True
+                    try:
+                        tab.reload(wait_until='commit', timeout=2000)
+                    except BrowserError:
+                        pass
+                    break
+        time.sleep(0.3)
+    return False
 
 
 def main():
@@ -43,12 +81,10 @@ def main():
                 page.goto(PRODUCT_RATING_BASE_URL+'?shop_region=SG',wait_until='domcontentloaded',timeout=60000)
                 deadline=time.monotonic()+14*60
                 while time.monotonic()<deadline:
-                    page.wait_for_timeout(2500)
+                    time.sleep(2.5)
                     if not control('poll').get('save'):continue
-                    if not verified_login(page):
+                    if not wait_for_verified_login(context):
                         c.notify(f'{shop}: login is not verified yet. Open Product ratings in Seller Center, then press Save login again.');continue
-                    page.wait_for_timeout(3000)
-                    if not verified_login(page):continue
                     save_cookies(context,shop)
                     c.state.setdefault('shops',{})[shop]={'status':'login refreshed','login_needed':False,'when':c.now().strftime('%Y-%m-%d %H:%M SGT')}
                     c.save_state();store.save(pack(Path('.')));publish(c.state)
