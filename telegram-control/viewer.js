@@ -16,6 +16,7 @@ const touch=matchMedia('(pointer: coarse)').matches;
 // dropped: connection lost after being live; ended: session finished or expired.
 let state='starting',rfb=null,retryTimer=0,saveTimer=0,dropRetries=0,saveRequested=false;
 const viewerStart=Date.now();
+let remoteClipboard='';
 
 function enable(btn,on){btn.setAttribute('aria-disabled',String(!on));}
 const enabled=btn=>btn.getAttribute('aria-disabled')!=='true';
@@ -24,6 +25,8 @@ function render(status,help,cover){
  statusText.textContent=status;hint.textContent=help;
  overlay.hidden=!cover;if(cover)overlayText.textContent=cover;
  enable(save,state==='live');save.textContent=state==='saving'?'Checking loginâ€¦':'Save login';
+ $('entry').hidden=!touch||state!=='live';
+ if(state!=='live'){ $('draft').value=''; $('account').value=''; remoteClipboard=''; $('copyRemote').hidden=true; }
  keyboard.hidden=!touch;enable(keyboard,state==='live');
  for(const button of [zoom,pan,next,enter]){button.hidden=!touch;enable(button,state==='live');}
  if(state!=='live'){keyboard.setAttribute('aria-pressed','false');input.blur();}
@@ -53,10 +56,15 @@ function connect(){
  try{
   const session=new RFB($('screen'),`${location.protocol==='https:'?'wss':'ws'}://${location.host}/vnc/${id}`);
   session.resizeSession=false;session.focusOnClick=!touch;
-  session.qualityLevel=5;session.compressionLevel=6;
+  session.qualityLevel=touch?3:5;session.compressionLevel=6;
   session.scaleViewport=!zoomed;session.clipViewport=zoomed;session.dragViewport=panning;
   session.addEventListener('connect',()=>{dropRetries=0;setState('live');fitStage();});
   session.addEventListener('desktopname',fitStage);
+  session.addEventListener('clipboard',event=>{
+   if(rfb!==session||state!=='live')return;
+   remoteClipboard=event.detail.text;
+   $('copyRemote').hidden=!remoteClipboard;
+  });
   session.addEventListener('disconnect',()=>{if(rfb!==session)return;rfb=null;lost();});
   session.addEventListener('securityfailure',()=>{if(rfb!==session)return;rfb=null;setState('ended');});
   rfb=session;
@@ -89,6 +97,45 @@ reconnect.onclick=()=>{dropRetries=0;reconnect.hidden=true;render('Reconnectingâ
 // a network round trip cannot open the keyboard in iOS Safari.
 const SENTINEL='________';
 function key(sym){if(rfb&&state==='live'){rfb.sendKey(sym,undefined,true);rfb.sendKey(sym,undefined,false);}}
+$('copyRemote').onclick=async()=>{
+ if(state!=='live'||!remoteClipboard)return;
+ try{await navigator.clipboard.writeText(remoteClipboard);hint.textContent='Copied to your phone.';}
+ catch{hint.textContent='Clipboard access was blocked. Allow clipboard access in your browser and try again.';}
+};
+const draft=$('draft'),kind=$('entryKind');
+kind.onchange=()=>{
+ draft.value='';
+ draft.type=kind.value==='password'?'password':'text';
+ draft.autocomplete={password:'current-password',code:'one-time-code',text:'off'}[kind.value];
+ const canSave=kind.value==='password'&&typeof PasswordCredential!=='undefined'&&!!navigator.credentials?.store;
+ $('remember').hidden=!canSave;
+ $('account').hidden=!canSave;
+ draft.focus();
+};
+$('remember').onclick=async()=>{
+ const account=$('account').value.trim();
+ if(state!=='live'||kind.value!=='password')return;
+ if(!account||!draft.value){hint.textContent='Enter the account and password before saving.';return;}
+ const service=bigseller?'BigSeller':'TikTok';
+ try{
+  const credential=new PasswordCredential({id:service+' / '+account,name:service+' / '+account,password:draft.value});
+  await navigator.credentials.store(credential);
+  hint.textContent='Password submitted to your browser password manager.';
+ }catch{hint.textContent='Your browser could not save this password. Use your phone password manager.';}
+};
+function sendDraft(){
+ if(state!=='live'||!rfb||!draft.value)return;
+ for(const ch of draft.value){
+  const point=ch.codePointAt(0);
+  key(point<=255?point:0x01000000|point);
+ }
+ draft.value='';
+ draft.blur();
+}
+$('sendDraft').onclick=sendDraft;
+draft.addEventListener('keydown',event=>{
+ if(event.key==='Enter'&&!event.isComposing){event.preventDefault();sendDraft();}
+});
 function resetInput(){input.value=SENTINEL;input.setSelectionRange(SENTINEL.length,SENTINEL.length);}
 function openKeyboard(){
  if(state!=='live'||panning)return;
