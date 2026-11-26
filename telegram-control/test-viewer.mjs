@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 
 // Exercise the viewer event handlers without opening a private remote session.
-function viewer(service='tiktok'){
+function viewer(service='tiktok',touch=true){
  const nodes=new Map();let document;
  const element=id=>{
   const attrs={},events={};
@@ -24,7 +24,7 @@ function viewer(service='tiktok'){
   sendKey(sym,_code,down){if(down)this.keys.push(sym)}
   disconnect(){}
  }
- const context=vm.createContext({RFBModule:RFB,document,location:{pathname:'/viewer/test',search:'?service='+service,protocol:'https:',host:'test'},URLSearchParams,matchMedia:()=>({matches:true}),setTimeout:()=>1,clearTimeout(){},setInterval(){},innerHeight:700,window:{addEventListener(){}},fetch:async()=>({ok:true})});
+ const context=vm.createContext({RFBModule:RFB,document,location:{pathname:'/viewer/test',search:'?service='+service,protocol:'https:',host:'test'},URLSearchParams,matchMedia:()=>({matches:touch}),setTimeout:()=>1,clearTimeout(){},setInterval(){},innerHeight:700,window:{addEventListener(){}},fetch:async()=>({ok:true})});
  vm.runInContext(readFileSync(new URL('./viewer.js',import.meta.url),'utf8').replace(/^import .*\n/,''),context);
  session.events.connect();
  return {nodes,session,document};
@@ -68,4 +68,19 @@ test('phone draft preserves leading zeros and sends only when requested',()=>{
  assert.equal(draft.value,'');
  send.onclick();
  assert.equal(session.keys.length,6);
+});
+
+test('desktop shortcuts permit native paste and forward clipboard text exactly once',()=>{
+ const {nodes,session}=viewer('tiktok',false),screen=nodes.get('screen');
+ assert.equal(nodes.get('entry').hidden,false);
+ for(const modifier of ['ctrlKey','metaKey']){
+  let stopped=false;
+  screen.fire('keydown',{key:'v',[modifier]:true,stopPropagation(){stopped=true;}});
+  assert.equal(stopped,true);
+ }
+ screen.fire('paste',{clipboardData:{getData:()=>'00a@!'},preventDefault(){}});
+ assert.deepEqual(session.keys,[48,48,97,64,33]);
+ session.events.disconnect();
+ screen.fire('paste',{clipboardData:{getData:()=>'private'}});
+ assert.equal(session.keys.length,5);
 });

@@ -25,14 +25,14 @@ function render(status,help,cover){
  statusText.textContent=status;hint.textContent=help;
  overlay.hidden=!cover;if(cover)overlayText.textContent=cover;
  enable(save,state==='live');save.textContent=state==='saving'?'Checking login…':'Save login';
- $('entry').hidden=!touch||state!=='live';
+ $('entry').hidden=state!=='live';
  if(state!=='live'){ $('draft').value=''; $('account').value=''; remoteClipboard=''; $('copyRemote').hidden=true; }
  keyboard.hidden=!touch;enable(keyboard,state==='live');
  for(const button of [zoom,pan,next,enter]){button.hidden=!touch;enable(button,state==='live');}
  if(state!=='live'){keyboard.setAttribute('aria-pressed','false');input.blur();}
  reconnect.hidden=!(state==='dropped'||(state==='starting'&&Date.now()-viewerStart>60000));
 }
-function liveHint(){return touch?'Tap a field to type. Use Zoom for larger text, and Pan to move around. Open '+destination+', then tap Save login.':'Click the screen to type. Open '+destination+', then click Save login.';}
+function liveHint(){return touch?'Tap a field to type. Use Zoom for larger text, and Pan to move around. Open '+destination+', then tap Save login.':'Click a remote field and paste with Ctrl+V or ⌘V. You can also paste below and click Send. Open '+destination+', then click Save login.';}
 function renderStarting(){
  const late=Date.now()-viewerStart>180000;
  render('Starting…',late?'Still starting after 3 minutes. If Telegram has no “browser ready” message, send '+loginCommand+' for a new link.':'Starting the remote browser. This usually takes under a minute.',late?'Still waiting for the browser…':'Starting the browser…');
@@ -99,7 +99,7 @@ const SENTINEL='________';
 function key(sym){if(rfb&&state==='live'){rfb.sendKey(sym,undefined,true);rfb.sendKey(sym,undefined,false);}}
 $('copyRemote').onclick=async()=>{
  if(state!=='live'||!remoteClipboard)return;
- try{await navigator.clipboard.writeText(remoteClipboard);hint.textContent='Copied to your phone.';}
+ try{await navigator.clipboard.writeText(remoteClipboard);hint.textContent='Copied to your clipboard.';}
  catch{hint.textContent='Clipboard access was blocked. Allow clipboard access in your browser and try again.';}
 };
 const draft=$('draft'),kind=$('entryKind');
@@ -123,12 +123,33 @@ $('remember').onclick=async()=>{
   hint.textContent='Password submitted to your browser password manager.';
  }catch{hint.textContent='Your browser could not save this password. Use your phone password manager.';}
 };
-function sendDraft(){
- if(state!=='live'||!rfb||!draft.value)return;
- for(const ch of draft.value){
+function sendText(value){
+ for(const ch of value){
   const point=ch.codePointAt(0);
   key(point<=255?point:0x01000000|point);
  }
+}
+const screen=$('screen');
+// Let the browser dispatch a native paste before noVNC consumes the shortcut.
+screen.addEventListener('keydown',event=>{
+ if(state==='live'&&(event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='v'){
+  event.stopPropagation();
+ }
+},true);
+screen.addEventListener('paste',event=>{
+ const value=event.clipboardData?.getData('text/plain');
+ if(!value||state!=='live'||!rfb)return;
+ event.preventDefault();
+ // noVNC may already have forwarded the physical shortcut modifier. On Mac
+ // it maps the left Command key to Alt and the right Command key to Super.
+ for(const [sym,code] of [[0xffe3,'ControlLeft'],[0xffe4,'ControlRight'],[0xffe9,'MetaLeft'],[0xffeb,'MetaRight']]){
+  rfb.sendKey(sym,code,false);
+ }
+ sendText(value);
+},true);
+function sendDraft(){
+ if(state!=='live'||!rfb||!draft.value)return;
+ sendText(draft.value);
  draft.value='';
  draft.blur();
 }
