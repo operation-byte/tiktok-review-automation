@@ -1,6 +1,7 @@
 """The existing temporary noVNC browser, with BigSeller-specific verification."""
 from __future__ import annotations
 
+import os
 import time
 from urllib.parse import urlparse
 
@@ -31,7 +32,7 @@ def main():
     success = False
     try:
         with private_desktop(), sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=False)
+            browser = playwright.chromium.launch(headless=False, channel=os.getenv("BROWSER_CHANNEL") or None)
             context = browser.new_context(storage_state=state, viewport={'width': 1440, 'height': 900}, locale='en-SG', timezone_id='Asia/Singapore')
             try:
                 page = context.new_page()

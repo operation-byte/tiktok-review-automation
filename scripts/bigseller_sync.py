@@ -190,7 +190,9 @@ def main():
                'BIGSELLER_DOWNLOAD_DIR': str(temporary / 'downloads'), 'BIGSELLER_LOG_DIR': str(temporary / 'logs'),
                'BIGSELLER_LOCK_FILE': str(temporary / 'export.lock')}
         (temporary / 'incoming').mkdir()
+        started = time.monotonic()
         result = subprocess.run(['node', 'src/run.js'], cwd=ROOT / 'integrations/bigseller-export', env=env, timeout=16 * 60)
+        print(f"Browser export: {time.monotonic() - started:.1f}s", flush=True)
         if result.returncode:
             if result.returncode == 10:
                 login_required()
@@ -212,7 +214,9 @@ def main():
             publish('export check passed', login_needed=False, dry_run=True)
             notify(f'✅ BigSeller export check passed: {rows} Single SKU rows validated. Stock data was unchanged. Use Run sync or /bs_run after enabling sync.')
         else:
+            started = time.monotonic()
             receipt = importer.import_file(path, rows)
+            print(f'Dashboard import and confirmation: {time.monotonic() - started:.1f}s', flush=True)
             publish('stock updated', login_needed=False, rows=rows, fileId=receipt['fileId'], lastImportAt=receipt.get('importedAt'), dry_run=False)
             notify(f'✅ BigSeller stock updated: {rows} Single SKU rows imported into the main dashboard. Procurement refreshed; stock alerts checked.')
     return 0

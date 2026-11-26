@@ -50,9 +50,11 @@ jobs:
           cache-dependency-path: integrations/bigseller-export/package-lock.json
       - name: Install exporter and validation dependencies
         run: |
-          python -m pip install -r requirements-bigseller.txt
+          python -m pip install -r requirements-bigseller.txt &
+          pip_install=$!
           npm ci --ignore-scripts --prefix integrations/bigseller-export
-          integrations/bigseller-export/node_modules/.bin/playwright install --with-deps chromium
+          integrations/bigseller-export/node_modules/.bin/playwright install --with-deps --only-shell chromium
+          wait "$pip_install"
       - name: Export and confirm stock import
         run: python -m scripts.bigseller_sync
       - name: Report incomplete run

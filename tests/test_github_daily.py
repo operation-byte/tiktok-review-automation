@@ -69,7 +69,8 @@ def test_workflow_is_single_daily_run_for_three_shops():
     assert 'concurrency:' in text
     code = (workflow.parents[2] / "github_daily.py").read_text()
     assert 'pool.submit(run_one, shop)' in code
-    assert 'store.save(pack(Path(".")))' in code
+    assert 'snapshot = pack(Path("."))' in code
+    assert 'store.save(snapshot)' in code
     assert 'ready_for_live = has_snapshot and Path("state/history_imported.ok").is_file()' in code
 
 
