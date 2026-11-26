@@ -37,13 +37,7 @@ jobs:
             requirements-github.txt
             requirements-relogin.txt
       - name: Install browser and private display
-        run: |
-          python -m pip install -r requirements-relogin.txt
-          python -m playwright install --no-shell chromium &
-          browser=$!
-          python -m playwright install-deps chromium
-          sudo apt-get install -y --no-install-recommends x11vnc xvfb
-          wait "$browser"
+        run: bash scripts/setup_login_browser.sh
       - name: Open private BigSeller login
         run: python -m scripts.bigseller_login
       - name: Report setup failure

@@ -41,10 +41,7 @@ async function ensureInventoryVisible(page) {
     page.getByText(/single sku/i),
     page.getByRole('button', { name: /export/i }),
   ];
-  for (const locator of evidence) {
-    if (await locator.first().isVisible().catch(() => false)) return;
-  }
-  await page.waitForTimeout(3000);
+  if (await firstVisible(evidence, { timeoutMs: 3000 })) return;
   if (await isLoginRequired(page)) throw new BigSellerError('LOGIN_REQUIRED', 'BigSeller session has expired.');
   throw new BigSellerError('UI_EXPORT_FAILURE', 'Inventory List did not become visible. BigSeller may have changed its page layout.');
 }

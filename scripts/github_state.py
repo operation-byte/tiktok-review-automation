@@ -75,7 +75,8 @@ class GitHubStateStore:
     def save(self, encrypted: bytes) -> None:
         if len(encrypted) > 950_000:
             raise StateStoreError("Encrypted state is too large for GitHub Contents API")
-        self.ensure_branch()
+        if not self._sha:
+            self.ensure_branch()
         body = {
             "message": "Update encrypted TikTok review state",
             "branch": BRANCH,

@@ -76,7 +76,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
    return {ok:true,status:{...summary,enabled,runs:selected.map(r=>({status:r.conclusion||r.status,url:r.html_url,created_at:r.created_at,updated_at:r.updated_at}))},message:`BigSeller scheduled sync: ${enabled?'enabled':'paused'}\nLast report: ${summary.status||'No report yet'}${summary.when?' · '+summary.when:''}${summary.login_needed?'\nLogin required — tap Login to BigSeller in the alert or use /bs_login.':''}${summary.rows!==undefined?'\nImported SKU rows: '+summary.rows:''}${summary.lastImportAt?'\nLast stock update: '+summary.lastImportAt:''}\n`+selected.map(r=>`${r.name}: ${r.conclusion||r.status}\n${r.html_url}`).join('\n')};
   }
   const active=runs.find(r=>!r.conclusion);
-  if(active)return {ok:false,message:'A BigSeller login/sync job is already active.\n'+active.html_url};
+  if(active)return {ok:false,message:'BigSeller '+(active.name||'job')+' is '+active.status+'. Try again after it finishes.\n'+active.html_url};
   if(action==='run'&&!await this.bigSellerEnabled())return {ok:false,message:'BigSeller sync is paused. Use /bs_resume or Resume in Warehouse first.'};
   const recent=await this.ctx.storage.get('bigsellerLastDispatch')||0;
   if(Date.now()-recent<60000)return {ok:false,message:'A BigSeller job was just requested. Wait one minute, then refresh status.'};
@@ -84,7 +84,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
   if(action==='login'){
    workflow='bigseller-login.yml';inputs.session=crypto.randomUUID();const key=token();
    const stub=this.env.CONTROL.get(this.env.CONTROL.idFromName('session:'+inputs.session));
-   await stub.fetch('https://internal/create',{method:'POST',body:JSON.stringify({shop:'bigseller',service:'bigseller',keyHash:await hash(key),expires:Date.now()+35*60000,status:'starting'})});
+   await stub.fetch('https://internal/create',{method:'POST',body:JSON.stringify({shop:'bigseller',service:'bigseller',keyHash:await hash(key),requestedAt:Date.now(),expires:Date.now()+35*60000,status:'starting'})});
    loginUrl=`${this.env.PUBLIC_URL}/open/${inputs.session}?service=bigseller#${key}`;
   }else inputs.dry_run=action==='dryrun'?'true':'false';
   await this.ctx.storage.put('bigsellerLastDispatch',Date.now());
@@ -115,7 +115,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
    return this.say(text);
   }
   const active=(await this.runs()).find(r=>!r.conclusion);
-  if(active)return this.say(`A review/login job is already active. Please wait for it to finish.\n${active.html_url}`);
+  if(active)return this.say(`${active.name||'TikTok job'} is ${active.status}. Try again after it finishes.\n${active.html_url}`);
   if(action==='run'&&(await this.gh('/actions/variables/AUTOMATION_ENABLED')).value!=='true')return this.say('Live runs are paused. Use /tt_resume first.');
   const recent=await this.ctx.storage.get('lastDispatch')||0;
   if(Date.now()-recent<60000)return this.say('A job was just requested. Wait one minute, then use /tt_status.');
@@ -124,7 +124,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
   if(action==='login'){
    workflow='relogin.yml';inputs.session=crypto.randomUUID();const key=token();
    const stub=this.env.CONTROL.get(this.env.CONTROL.idFromName('session:'+inputs.session));
-   await stub.fetch('https://internal/create',{method:'POST',body:JSON.stringify({shop,keyHash:await hash(key),expires:Date.now()+35*60000,status:'starting'})});
+   await stub.fetch('https://internal/create',{method:'POST',body:JSON.stringify({shop,keyHash:await hash(key),requestedAt:Date.now(),expires:Date.now()+35*60000,status:'starting'})});
    link=`${this.env.PUBLIC_URL}/open/${inputs.session}#${key}`;
   }
   try{await this.gh(`/actions/workflows/${workflow}/dispatches`,'POST',{ref:'main',inputs});}catch(e){await this.ctx.storage.delete('lastDispatch');throw e;}
@@ -151,7 +151,7 @@ try{await this.env.WEBHOOK_AUDIT.put('last_tiktok_command',JSON.stringify({at:ne
   }
   if(path==='/ready'){try{await this.env.WEBHOOK_AUDIT.put('last_browser_ready',JSON.stringify({at:new Date().toISOString(),shop:s.shop,status:'ready'}))}catch{};
    s.status='ready';s.expires=Math.min(s.expires,Date.now()+15*60000);await this.ctx.storage.put('session',s);await this.ctx.storage.setAlarm(s.expires);
-   await this.say(`Private login browser ready for ${s.shop}. Open the link above. After logging into the correct shop, press Save login. Link expires in 15 minutes.`);return reply('ok');
+   await this.say(`Private login browser ready for ${s.shop}${s.requestedAt ? ' after '+Math.round((Date.now()-s.requestedAt)/1000)+'s' : ''}. Open the link above. After logging into the correct shop, press Save login. Link expires in 15 minutes.`);return reply('ok');
   }
   if(path==='/finish'){
    s.status='complete';await this.ctx.storage.put('session',s);this.close();return reply('ok');

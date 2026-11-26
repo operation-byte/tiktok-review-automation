@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -28,10 +29,12 @@ def main() -> int:
     has_snapshot = False
     try:
         store = GitHubStateStore()
+        started = time.monotonic()
         blob = store.fetch()
         if blob:
             unpack(blob, Path("."))
             has_snapshot = True
+            print(f"Encrypted state restore: {time.monotonic() - started:.1f}s", flush=True)
         # Controller state is evaluated at import, before the snapshot restore.
         c.state = c.load_state()
     except (StateStoreError, RuntimeError) as exc:
@@ -75,11 +78,17 @@ def main() -> int:
     def run_one(shop: str) -> None:
         # Each shop has its own browser profile and cookie jar, so shops run at
         # the same time. Shared CSV and Google Sheet writes are file-locked.
+        started = time.monotonic()
         c.run_shop(shop, force_dry=not request_live)
+        print(f"{shop} review check: {time.monotonic() - started:.1f}s", flush=True)
         # Persist refreshed cookies, verified history and job status as soon as
         # EACH shop finishes, even if another shop is still running or fails.
-        with save_mutex, file_lock(STATE_FILES):
-            store.save(pack(Path(".")))
+        started = time.monotonic()
+        with save_mutex:
+            with file_lock(STATE_FILES):
+                snapshot = pack(Path("."))
+            store.save(snapshot)
+        print(f"{shop} checkpoint including lock wait: {time.monotonic() - started:.1f}s", flush=True)
         with c.state_mutex:
             publish(c.state)
 
