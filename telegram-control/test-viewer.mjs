@@ -55,3 +55,17 @@ test('zoom and pan use local viewport controls',()=>{
  assert.equal(document.activeElement,null);
  nodes.get('zoom').onclick();assert.equal(session.scaleViewport,true);assert.equal(session.dragViewport,false);
 });
+test('phone draft preserves leading zeros and sends only when requested',()=>{
+ const {nodes,session}=viewer(),draft=nodes.get('draft'),send=nodes.get('sendDraft');
+ draft.value='001234';
+ draft.fire('input');
+ assert.deepEqual(session.keys,[]);
+ send.onclick();
+ assert.deepEqual(session.keys,[48,48,49,50,51,52]);
+ assert.equal(draft.value,'');
+ draft.value='pending';
+ session.events.disconnect();
+ assert.equal(draft.value,'');
+ send.onclick();
+ assert.equal(session.keys.length,6);
+});
